@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ollama Colab Chat</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2b3140;
+    --text:#e6e9ef; --muted:#8a93a6; --accent:#5b8cff; --accent2:#7c6cff;
+    --user:#2a3a63; --assistant:#1e222b; --err:#ff6b6b; --ok:#4ade80;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  #app{height:100vh;display:flex;flex-direction:column;max-width:860px;margin:0 auto}
+  header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--panel)}
+  header h1{font-size:15px;margin:0 auto 0 0;font-weight:600}
+  header .badge{font-size:11px;color:var(--ok);border:1px solid var(--border);border-radius:999px;padding:2px 8px}
+  select,input[type=number],button{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px}
+  select:focus,input[type=number]:focus{border-color:var(--accent);outline:none}
+  button{cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  #msgs{flex:1;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:14px}
+  .msg{display:flex;flex-direction:column;gap:4px;max-width:92%}
+  .msg .who{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .msg .bubble{padding:10px 13px;border-radius:12px;white-space:pre-wrap;word-break:break-word}
+  .user{align-self:flex-end;align-items:flex-end}
+  .user .bubble{background:var(--user);border-bottom-right-radius:3px}
+  .assistant .bubble{background:var(--assistant);border:1px solid var(--border);border-bottom-left-radius:3px}
+  .error .bubble{background:#3a1f22;border-color:#5b2b33;color:#ffc9c9}
+  .msg .meta{font-size:11px;color:var(--muted)}
+  code{background:#0d0f13;border:1px solid var(--border);border-radius:5px;padding:1px 5px;font-size:13px}
+  pre{background:#0d0f13;border:1px solid var(--border);border-radius:8px;padding:10px;overflow-x:auto}
+  pre code{background:none;border:none;padding:0}
+  .cursor::after{content:"▍";color:var(--accent);animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  footer{display:flex;gap:10px;padding:12px 14px;border-top:1px solid var(--border);background:var(--panel)}
+  #input{flex:1;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:14px;resize:none;height:48px}
+  #input:focus{outline:none;border-color:var(--accent)}
+  #start{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:10}
+  #start .card{max-width:480px;width:90%;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px}
+  #start h2{margin:0 0 8px}
+  #start p{color:var(--muted);font-size:13px}
+  #start input{width:100%;margin:6px 0;background:var(--panel2)}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  .hint{font-size:12px;color:var(--muted);text-align:right}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="title">Colab Ollama Chat</h1>
+    <select id="model" title="Model"></select>
+    <input id="temp" type="number" step="0.1" min="0" max="2" value="0.7" title="Temperature" style="width:70px">
+    <button id="reset" title="Start a new chat">+ New</button>
+  </header>
+  <div id="msgs"></div>
+  <footer>
+    <textarea id="input" placeholder="Type a message… (Enter to send, Shift+Enter for newline)"></textarea>
+    <button id="send" style="width:70px">Send</button>
+  </footer>
+</div>
+
+<div id="start">
+  <div class="card">
+    <h2>Connect to your Ollama tunnel</h2>
+    <p>Paste the <strong>BASE URL</strong> printed by the Colab notebook
+       (e.g. <code>https://abc123.trycloudflare.com</code>), pick a model, then hit Connect.
+       It talks straight to your tunnel — no local server needed.</p>
+    <input id="connBase" placeholder="https://xxx.trycloudflare.com" spellcheck="false">
+    <div class="row" style="margin-top:8px">
+      <button id="loadModels">Load models</button>
+      <button id="connect">Connect</button>
+    </div>
+    <p id="connStatus"></p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const app = $("app"), start = $("start"), msgs = $("msgs"),
+        input = $("input"), sendBtn = $("send"), modelSel = $("model"),
+        resetBtn = $("reset"), title = $("title");
+  const DEFAULT_BASE = "https://localhost:11434";
+  let BASE = "", MODEL = "", TEMP = 0.7, busy = false;
+
+  const qs = new URLSearchParams(location.search);
+  const ls = k => localStorage.getItem("cochat." + k);
+
+  // --- helpers -----------------------------------------------------------
+  function norm(b){ b = (b||"").trim().replace(/\/+$/,"");
+    if(!/^(https?:\/\/)/i.test(b)) b = "https://" + b;
+    return b.replace(/\/v1\/?$/, ""); }
+  async function api(path, opts){
+    const res = await fetch(BASE + path, opts);
+    if(!res.ok){ let t=""; try{ t = (await res.json()).error?.message || ""; }catch(_){}
+      throw new Error(res.status + " " + res.statusText + (t?": "+t:"")); }
+    return res; }
+  async function streamChat(url, body, onDelta){
+    const res = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    if(!res.ok){ let t=""; try{ t = (await res.json()).error?.message || ""; }catch(_){}
+      throw new Error(res.status + " " + res.statusText + (t?": "+t:"")); }
+    if(!res.body) throw new Error("streaming not supported by this browser");
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf="", done=false;
+    while(!done){
+      const {done: d, value} = await reader.read(); done = d;
+      buf += dec.decode(value, {stream: !done});
+      let i;
+      while((i = buf.indexOf("\n")) >= 0){
+        const line = buf.slice(0, i); buf = buf.slice(i+1);
+        if(line.startsWith("data: ")){
+          const data = line.slice(6).trim();
+          if(data === "[DONE]") return;
+          try{ const j = JSON.parse(data);
+            onDelta(j.choices?.[0]?.delta?.content || ""); }
+          catch(_){}
+        }
+      }
+    }
+  }
+
+  // --- messages ----------------------------------------------------------
+  function addMsg(role, text, meta){
+    const d = document.createElement("div");
+    d.className = "msg " + role;
+    const who = document.createElement("div"); who.className = "who"; who.textContent = role;
+    const b = document.createElement("div"); b.className = "bubble";
+    b.innerHTML = render(text);
+    d.append(who, b);
+    if(meta){ const m = document.createElement("div"); m.className = "meta"; m.textContent = meta; d.append(m); }
+    msgs.append(d); d.scrollIntoView({block:"nearest"}); return b;
+  }
+  function render(t){
+    return String(t||"").replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/(```[\s\S]*?```)/g, (m)=> { const x=m.slice(3,-3).split("\n"); const code=x.slice(1).join("\n")||x[0]; return "<pre><code>"+code+"</code></pre>"; })
+      .replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  }
+  // --- chat --------------------------------------------------------------
+  const history = [];
+  function appendHist(role, content){ history.push({role, content}); }
+
+  async function send(){
+    const text = input.value.trim();
+    if(!text || busy || !BASE) return;
+    input.value = ""; busy = true; sendBtn.disabled = true;
+    addMsg("user", text);
+    history.push({role:"user", content:text});
+    if(history.length > 1 && history[0].role === "user") history.unshift({role:"system", content:"You are a helpful coding assistant."});
+    const bubble = addMsg("assistant", ""); bubble.classList.add("cursor");
+    let acc = "", t0 = performance.now();
+    try{
+      await streamChat(BASE + "/v1/chat/completions", {
+        model: MODEL, messages: history, stream: true,
+        temperature: parseFloat($("temp").value)
+      }, delta => { acc += delta; bubble.innerHTML = render(acc) + '<span class="cursor"></span>'; });
+      bubble.classList.remove("cursor");
+      if(!acc){ bubble.textContent = "(empty reply)"; }
+      history.push({role:"assistant", content:acc});
+    }catch(e){
+      bubble.classList.remove("cursor");
+      bubble.textContent = "Error: " + e.message;
+      bubble.closest(".msg").className = "msg assistant error";
+    }
+    const secs = ((performance.now()-t0)/1000).toFixed(1);
+    if(history[history.length-1].role === "assistant"){
+      const meta = bubble.closest(".msg").querySelector(".meta") || (()=>{const m=document.createElement("div");m.className="meta";bubble.closest(".msg").append(m);return m;})();
+      meta.textContent = secs + "s · " + Math.round(acc.split(/\s+/).filter(Boolean).length) + " words";
+    }
+    busy = false; sendBtn.disabled = false; input.focus();
+  }
+
+  // --- models ------------------------------------------------------------
+  async function loadModelList(){
+    modelSel.innerHTML = '<option disabled>Loading…</option>';
+    try{
+      const res = await api("/v1/models");
+      const j = await res.json();
+      const ids = (j.data||[]).map(m=>m.id);
+      modelSel.innerHTML = "";
+      ids.forEach(id => { const o = document.createElement("option"); o.value = id; o.textContent = id; modelSel.append(o); });
+      if(ids.length === 0){ modelSel.innerHTML = '<option value="">(no models pulled)</option>'; }
+      if(MODEL && ids.includes(MODEL)) modelSel.value = MODEL;
+      else if(ids.includes(MODEL)) {} else if(ids.length) MODEL = ids[0];
+      $("connStatus").textContent = "Connected to " + BASE;
+      $("connStatus").style.color = "var(--ok)";
+      return ids;
+    }catch(e){ $("connStatus").textContent = "Failed: " + e.message; $("connStatus").style.color = "var(--err)"; return []; }
+  }
+
+  function openConnection(base){
+    BASE = norm(base);
+    localStorage.setItem("cochat.base", BASE);
+    title.textContent = BASE.replace(/^https?:\/\//,"");
+    start.style.display = "none"; app.style.display = "flex";
+    loadModelList();
+    const m = qs.get("model"); if(m) MODEL = m;
+    input.focus();
+  }
+
+  // --- events ------------------------------------------------------------
+  $("connect").onclick = () => openConnection($("connBase").value);
+  $("loadModels").onclick = () => { BASE = norm($("connBase").value); loadModelList(); };
+  sendBtn.onclick = send;
+  input.addEventListener("keydown", e => { if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(); } });
+  resetBtn.onclick = () => { history.length = 0; msgs.innerHTML = ""; input.focus(); };
+  modelSel.onchange = () => { MODEL = modelSel.value; history.length = 0; msgs.innerHTML = ""; };
+
+  // initialization
+  app.style.display = "none";
+  const saved = qs.get("base") || (ls("base") === "null" ? "" : ls("base"));
+  MODEL = qs.get("model") || "";
+  if(saved && saved !== "null"){ $("connBase").value = saved; openConnection(saved); }
+})();
+</script>
+</body>
+</html>

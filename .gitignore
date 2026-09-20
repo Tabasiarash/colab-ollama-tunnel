@@ -1,6 +1,7 @@
 *.log
 tunnel_url.txt
 model_id.txt
+last_setup.json
 __pycache__/
 *.pyc
 ollama.tgz.zst

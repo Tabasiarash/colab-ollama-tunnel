@@ -35,6 +35,34 @@ flowchart LR
 
 ## Quick start
 
+### Option A — install wizard (recommended)
+
+After the notebook prints its `BASE URL`, run the wizard on your machine. It walks you through
+everything step by step, checks the tunnel live, patches opencode, and opens a browser chat:
+
+```bash
+git clone https://github.com/Tabasiarash/colab-ollama-tunnel.git && cd colab-ollama-tunnel
+
+# macOS / Linux:
+python3 wizard.py
+
+# Windows:
+wizard.bat
+```
+
+The wizard will:
+1. Check prerequisites — and offer to auto-install opencode (`npm install -g opencode-ai`) if missing.
+2. Ask for the **BASE URL** from the notebook, then verify it can reach the tunnel.
+3. Let you pick the **model** from the ones actually pulled on Colab.
+4. Patch `~/.config/opencode/opencode.jsonc` (a `.bak` is kept) and remind you to restart opencode.
+5. Send a one-shot **test message** through the tunnel, and
+6. Open a **browser chat** (`web/chat.html`) so you can chat with the model right away —
+   optionally also served over your LAN (`http://<your-ip>:8080/chat.html`) for your phone.
+
+Re-running the wizard reuses your last setup.
+
+### Option B — manual (`update_config.py`)
+
 1. Open the notebook in Colab:\
    [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Tabasiarash/colab-ollama-tunnel/blob/main/colab_ollama.ipynb)
 2. **Runtime > Change runtime type** → Hardware accelerator: **T4 GPU**.
@@ -51,6 +79,16 @@ python3 update_config.py https://<BASE>.trycloudflare.com qwen2.5-coder:14b
 ```
 
 6. Restart opencode — you're running on a Colab GPU.
+
+## Browser chat
+
+`web/chat.html` is a zero-dependency chat UI that talks **directly** to the tunnel from your browser
+(Ollama sends `Access-Control-Allow-Origin: *`, so no local server is needed). Open it manually and
+paste the BASE URL, or let the wizard open it pre-configured:
+
+```
+file:///.../colab-ollama-tunnel/web/chat.html?base=https%3A%2F%2F<BASE>.trycloudflare.com&model=qwen2.5-coder:14b
+```
 
 The notebook also prints a copy-paste-ready `opencode.jsonc` block if you prefer to edit the config by
 hand. `opencode.jsonc.example` is the same template with a placeholder URL.
@@ -111,8 +149,12 @@ tunnel URL; no ports need opening on the VPS either.
 ```
 ├── colab_ollama.ipynb       # the notebook (grab-and-go)
 ├── gen_colab_nb.py          # builds the notebook from source strings
+├── wizard.py                # interactive installer (macOS / Windows)
+├── wizard.sh / wizard.bat   # one-line launcher for the wizard
+├── web/chat.html            # zero-dependency browser chat UI
 ├── update_config.py         # patches ~/.config/opencode/opencode.jsonc with the tunnel
 ├── opencode.jsonc.example   # hand-editable config template
+├── tests/                   # mock-Ollama E2E tests (python3 tests/test_all.py)
 ├── README.md
 └── LICENSE                  # MIT
 ```
