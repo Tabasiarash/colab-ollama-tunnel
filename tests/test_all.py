@@ -8,9 +8,12 @@ Covers:
      (opencode + Tokenless Gemini CLI engines) driven headlessly against the
      mock Ollama server
   3. the gemini_bridge: LiteLLM config/YAML/alias-map generation, launch
-     commands, env vars (no processes are launched in tests)
-  4. OpenAI-compatible streaming + CORS preflight exactly as web/chat.html uses
-  5. every notebook code cell is valid Python; model-tier thresholds pass
+     commands, env vars, and the bridge+gemini launcher scripts (no processes
+     are launched in tests)
+  4. the GUI wizard module (wizard_gui): import, resource resolution incl. the
+     PyInstaller _MEIPASS case, version string, smoke_status, build files
+  5. OpenAI-compatible streaming + CORS preflight exactly as web/chat.html uses
+  6. every notebook code cell is valid Python; model-tier thresholds pass
 """
 import json
 import os
@@ -28,7 +31,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gemini_bridge as GB  # noqa: E402
 import mock_ollama  # noqa: E402
+import version  # noqa: E402
+import wizard_gui  # noqa: E402
 from update_config import write_config  # noqa: E402
+from wizard import smoke_status  # noqa: E402
 
 PORT = 11435
 BASE = f"http://127.0.0.1:{PORT}"
@@ -326,6 +332,99 @@ def test_gemini_wizard_flow():
         bad("reuse run did not keep gemini engine")
 
 
+def test_version():
+    print("test: version")
+    parts = version.VERSION.split(".")
+    ok(f"VERSION = {version.VERSION}")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        bad("VERSION should be X.Y.Z (used for tags + artifact names)")
+
+
+def test_resource_path():
+    print("test: GUI resource resolution")
+    orig = getattr(sys, "_MEIPASS", None)
+    try:
+        d = Path(tempfile.mkdtemp(prefix="guitest_"))
+        (d / "web").mkdir()
+        (d / "web" / "chat.html").write_text("<html></html>")
+        sys._MEIPASS = str(d)
+        got = wizard_gui.resource_path("web/chat.html")
+        (ok if got == d / "web" / "chat.html" else bad)(f"resource_path(web/chat.html) = {got}")
+        found = wizard_gui.chat_html_path()
+        if found.exists() and found.name == "chat.html":
+            ok(f"chat_html_path resolves to an existing file ({found.name})")
+        else:
+            bad(f"chat_html_path did not resolve: {found}")
+    finally:
+        if orig is None:
+            sys.__dict__.pop("_MEIPASS", None)
+        else:
+            sys._MEIPASS = orig
+
+
+def test_gui_module():
+    print("test: GUI module surface")
+    if hasattr(wizard_gui, "WizardApp") and hasattr(wizard_gui, "ENGINES"):
+        ok("WizardApp class + engine options present")
+    else:
+        bad("wizard_gui missing WizardApp/ENGINES")
+    if {"opencode", "gemini", "both"} <= set(wizard_gui.ENGINES):
+        ok("engine choices include opencode / gemini / both")
+    else:
+        bad("engine options incomplete")
+    try:
+        import py_compile
+        py_compile.compile(str(REPO / "wizard_gui.py"), doraise=True)
+        ok("wizard_gui.py compiles")
+    except py_compile.PyCompileError as e:
+        bad(f"wizard_gui.py syntax: {e}")
+
+
+def test_smoke_status():
+    print("test: smoke_status (used by GUI + wizard)")
+    okst, reply = smoke_status(BASE, "qwen2.5-coder:14b", timeout=20)
+    (ok if okst and "tunnel OK" in reply else bad)(f"smoke_status vs mock -> {reply!r}")
+    okst2, err = smoke_status("http://127.0.0.1:1", "qwen2.5-coder:14b", timeout=3)
+    (ok if not okst2 else bad)("smoke_status fails cleanly on a dead tunnel")
+
+
+def test_gemini_launcher():
+    print("test: gemini bridge launcher scripts")
+    for plat in ("win32", "linux"):
+        text = GB.launcher_script(plat)
+        checks = ("--sandbox=false" in text,
+                  f"{GB.PORT}" in text,
+                  "GOOGLE_GEMINI_BASE_URL" in text,
+                  GB.MASTER_KEY in text,
+                  "gemini" in text)
+        (ok if all(checks) else bad)(f"launcher_script({plat}) contains bridge+gemini wiring")
+    d = Path(tempfile.mkdtemp(prefix="lanc_"))
+    sh = GB.write_launcher(platform="linux", path=d / "start_gemini.sh")
+    bt = GB.write_launcher(platform="win32", path=d / "start_gemini.bat")
+    ok(f"write_launcher writes .sh ({sh.exists()}) + .bat ({bt.exists()})")
+    if sh.exists() and not os.access(sh, os.X_OK):
+        bad(".sh launcher should be executable")
+
+
+def test_build_files():
+    print("test: build artifacts")
+    for rel in ["build/gen_icon.py", "build/mac_build.sh", "build/win_build.bat",
+                "build/icon.png", "build/icon.ico",
+                ".github/workflows/build-release.yml"]:
+        p = REPO / rel
+        (ok if p.exists() else bad)(f"{rel} present")
+    png = (REPO / "build/icon.png").read_bytes()
+    ico = (REPO / "build/icon.ico").read_bytes()
+    if png.startswith(b"\x89PNG\r\n\x1a\n"):
+        ok("icon.png is a valid PNG")
+    else:
+        bad("icon.png magic bytes wrong")
+    if ico.startswith(b"\x00\x00\x01\x00\x01\x00"):
+        ok("icon.ico has a valid ICO header")
+    else:
+        bad("icon.ico header wrong")
+
+
 def test_notebook():
     print("test: notebook integrity")
     nb = json.loads((REPO / "colab_ollama.ipynb").read_text())
@@ -366,6 +465,12 @@ def main():
         test_wizard_flow()
         test_gemini_bridge()
         test_gemini_wizard_flow()
+        test_version()
+        test_resource_path()
+        test_gui_module()
+        test_smoke_status()
+        test_gemini_launcher()
+        test_build_files()
         test_notebook()
     finally:
         server.shutdown()

@@ -437,10 +437,8 @@ def start_local_chat(base, model):
 # ---------------------------------------------------------------------------
 # 6. Smoke test
 # ---------------------------------------------------------------------------
-def smoke_test(base, model):
-    section("Quick test")
-    if not yn("  Send a one-shot test message through the tunnel?", default=True):
-        return
+def smoke_status(base, model, timeout=180):
+    """One-shot tunnel test. Returns (ok, reply_or_error) - reuses urllib only."""
     body = json.dumps(
         {
             "model": model,
@@ -457,12 +455,22 @@ def smoke_test(base, model):
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=180) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode())
-        reply = (data["choices"][0]["message"]["content"] or "").strip()
-        print(GREEN("  ✔ model replied:") + ("  " + reply[:90] if reply else DIM("  (empty)")))
+        return True, (data["choices"][0]["message"]["content"] or "").strip()
     except Exception as exc:
-        print(YELLOW(f"  • smoke test did not complete: {exc}"))
+        return False, str(exc)
+
+
+def smoke_test(base, model):
+    section("Quick test")
+    if not yn("  Send a one-shot test message through the tunnel?", default=True):
+        return
+    ok, reply = smoke_status(base, model)
+    if ok:
+        print(GREEN("  ✔ model replied:") + ("  " + reply[:90] if reply else DIM("  (empty)")))
+    else:
+        print(YELLOW(f"  • smoke test did not complete: {reply}"))
         print("    (First load can be slow while the model warms up - retry in the chat.)")
 
 

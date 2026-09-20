@@ -9,3 +9,9 @@ cloudflared
 .venv/
 node_modules/
 .DS_Store
+# PyInstaller build output
+*.spec
+dist/
+build/Tokenless CLI Wizard/
+build/TokenlessIcon.iconset/
+build/*.icns

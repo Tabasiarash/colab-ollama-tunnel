@@ -69,6 +69,25 @@ The wizard will:
 
 Re-running the wizard reuses your last setup.
 
+### Option A2 — GUI installer (macOS & Windows)
+
+Prefer a window over a terminal? Grab the matching installer from the
+[latest release](https://github.com/Tabasiarash/tokenless-cli/releases):
+
+* **macOS** — `tokenless-cli-<version>.dmg` (drag the *Tokenless CLI Wizard* app to Applications)
+* **Windows** — `Tokenless-CLI-Setup-<version>.exe` (one-file wizard, no installation)
+
+The GUI wizard exposes the same steps (tunnel check, model picker, engine choice, smoke test,
+browser chat, Gemini bridge launch) — the `.app`/`.exe` are built automatically for every new tag by
+[GitHub Actions](.github/workflows/build-release.yml).
+
+The app is not notarized/signed:
+* **macOS** — right-click the app (or the DMG copy) → *Open* the first time (Gatekeeper).
+* **Windows** — click *More info* → *Run anyway* on the SmartScreen prompt.
+
+Packaged only with `pyinstaller`; the wizard itself remains plain standard-library Python
+(`python3 wizard_gui.py` works too).
+
 ### Option B — manual (`update_config.py`)
 
 1. Open the notebook in Colab:\

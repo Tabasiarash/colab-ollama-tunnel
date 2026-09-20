@@ -1,0 +1,80 @@
+name: build-release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: run test suite
+        run: python3 tests/test_all.py
+
+  build-macos:
+    name: build .dmg
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: install pyinstaller
+        run: python3 -m pip install --quiet pyinstaller
+      - name: build dmg
+        run: bash build/mac_build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg
+          path: dist/*.dmg
+
+  build-windows:
+    name: build .exe
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: install pyinstaller
+        run: python -m pip install --quiet pyinstaller
+      - name: build exe
+        run: .\build\win_build.bat
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe
+          path: dist/*.exe
+
+  release:
+    name: publish release
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dmg
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: exe
+          path: release
+      - name: publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ github.ref_name }}"
+          if ! gh release create "$version" release/* --title "Tokenless CLI $version" --generate-notes; then
+            gh release upload "$version" release/*
+          fi

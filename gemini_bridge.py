@@ -235,6 +235,64 @@ def launch_gemini(cli=None, port=PORT, extra=None):
     ).returncode
 
 
+def launcher_script(platform=None, port=PORT):
+    """Return the bridge+gemini launcher script text (.sh for posix, .bat for win)."""
+    platform = platform or sys.platform
+    cfg = config_path()
+    base = f"http://127.0.0.1:{port}"
+    if platform.startswith("win"):
+        return (
+            "@echo off\r\n"
+            "rem Tokenless CLI - start the LiteLLM bridge + gemini (--sandbox=false)\r\n"
+            "cd /d %~dp0\r\n"
+            f'echo [tokenless] starting LiteLLM bridge on port {port} ...\r\n'
+            f'start "tokenless-bridge" cmd /c "litellm --config {cfg} --port {port}"\r\n'
+            f"echo [tokenless] waiting for the bridge ...\r\n"
+            "timeout /t 3 /nobreak >nul\r\n"
+            f"set GOOGLE_GEMINI_BASE_URL={base}\r\n"
+            f"set GEMINI_API_KEY={MASTER_KEY}\r\n"
+            "echo [tokenless] launching gemini (close gemini to keep the bridge in background)\r\n"
+            "gemini --sandbox=false\r\n"
+        )
+    return (
+        "#!/usr/bin/env bash\n"
+        "# Tokenless CLI - start the LiteLLM bridge + gemini (--sandbox=false)\n"
+        "set -e\n"
+        'cd "$(dirname "$0")"\n'
+        f"echo \"[tokenless] starting LiteLLM bridge on port {port} ...\"\n"
+        'if command -v litellm >/dev/null 2>&1; then\n'
+        f'  litellm --config "{cfg}" --port {port} &\n'
+        'else\n'
+        '  echo "[tokenless] litellm not found - run: python3 -m pip install litellm"\n'
+        '  exit 1\n'
+        'fi\n'
+        "BRIDGE_PID=$!\n"
+        "trap 'kill $BRIDGE_PID 2>/dev/null' EXIT\n"
+        f"if command -v curl >/dev/null 2>&1; then until curl -sf {base}/health/liveliness >/dev/null 2>&1; do sleep 1; done; else sleep 4; fi\n"
+        f"export GOOGLE_GEMINI_BASE_URL={base}\n"
+        f"export GEMINI_API_KEY={MASTER_KEY}\n"
+        'echo "[tokenless] bridge ready - launching gemini"\n'
+        'if command -v gemini >/dev/null 2>&1; then\n'
+        '  gemini --sandbox=false\n'
+        'else\n'
+        '  echo "[tokenless] gemini not found - run: npm install -g @google/gemini-cli"\n'
+        'fi\n'
+    )
+
+
+def write_launcher(platform=None, path=None):
+    """Write the launcher next to the bridge config; returns its Path."""
+    text = launcher_script(platform)
+    platform = platform or sys.platform
+    name = "start_gemini.bat" if platform.startswith("win") else "start_gemini.sh"
+    path = path or (config_path().parent / name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    if not platform.startswith("win"):
+        path.chmod(0o755)
+    return path
+
+
 def summary(config, port=PORT):
     return {
         "engine": "gemini",
