@@ -8,7 +8,7 @@ for the GPU you were granted, and exposes it through a temporary public HTTPS tu
 ([cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)).
 Your local `opencode` then talks to `https://<host>.trycloudflare.com/v1` like any other API.
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/tabasiarash/colab-ollama-tunnel/blob/main/colab_ollama.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Tabasiarash/colab-ollama-tunnel/blob/main/colab_ollama.ipynb)
 
 ## How it works
 
@@ -36,7 +36,7 @@ flowchart LR
 ## Quick start
 
 1. Open the notebook in Colab:\
-   [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/tabasiarash/colab-ollama-tunnel/blob/main/colab_ollama.ipynb)
+   [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Tabasiarash/colab-ollama-tunnel/blob/main/colab_ollama.ipynb)
 2. **Runtime > Change runtime type** → Hardware accelerator: **T4 GPU**.
 3. **Runtime > Run all** — sit back while it pulls the model (~10–20 min first time).
 4. When it finishes, copy the printed `BASE URL` and **model id**.
@@ -44,7 +44,7 @@ flowchart LR
 
 ```bash
 # clone the helper scripts
-git clone https://github.com/tabasiarash/colab-ollama-tunnel.git && cd colab-ollama-tunnel
+git clone https://github.com/Tabasiarash/colab-ollama-tunnel.git && cd colab-ollama-tunnel
 
 # patch ~/.config/opencode/opencode.jsonc (model id is optional)
 python3 update_config.py https://<BASE>.trycloudflare.com qwen2.5-coder:14b
