@@ -1,0 +1,29 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "ollama/qwen2.5-coder:14b",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (Colab)",
+      "options": {
+        "baseURL": "https://<REPLACE_WITH_YOUR_TUNNEL_HOST>.trycloudflare.com/v1"
+      },
+      "models": {
+        "qwen2.5-coder:14b": {
+          "name": "Qwen2.5 Coder 14B (Colab)",
+          "tool_call": true,
+          "options": {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "top_k": 20,
+            "repetition_penalty": 1.05
+          },
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        }
+      }
+    }
+  }
+}
