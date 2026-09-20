@@ -281,7 +281,7 @@ class WizardApp:
         if not GB.find_litellm():
             messagebox.showwarning(
                 "LiteLLM missing",
-                "The Gemini bridge needs LiteLLM.\n\npython3 -m pip install litellm",
+                "The Gemini bridge needs LiteLLM.\n\npython3 -m pip install 'litellm[proxy]'",
             )
             return
         if not GB.find_gemini():
@@ -332,7 +332,7 @@ class WizardApp:
         if not GB.find_litellm():
             messagebox.showwarning(
                 "LiteLLM missing",
-                "The Gemini bridge needs LiteLLM.\n\npython3 -m pip install litellm",
+                "The Gemini bridge needs LiteLLM.\n\npython3 -m pip install 'litellm[proxy]'",
             )
             return
         if not GB.find_gemini():

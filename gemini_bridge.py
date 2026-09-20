@@ -31,6 +31,7 @@ PORT = 4000
 MODEL_GROUP = "colab-tunnel"
 FIRST_MODEL_ID = "gemini-3.1-flash-preview"
 VERIFY_PROMPT = "Reply with exactly: tokenless-ok"
+VERIFY_TIMEOUT = 420
 
 GEMINI_MODEL_IDS = [
     "gemini-3.1-pro-preview",
@@ -218,7 +219,11 @@ def smoke_bridge(model_id=FIRST_MODEL_ID, port=PORT, timeout=300):
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/v1beta/models/{model_id}:generateContent",
         data=body,
-        headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
+        headers={
+            "Content-Type": "application/json",
+            "Content-Length": str(len(body)),
+            "Authorization": f"Bearer {MASTER_KEY}",
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -240,7 +245,7 @@ def _has_marker(text, marker="tokenless-ok"):
     return bool(text) and marker in (text or "")
 
 
-def verify_gemini_cli(cli=None, port=PORT, timeout=180, prompt=VERIFY_PROMPT):
+def verify_gemini_cli(cli=None, port=PORT, timeout=VERIFY_TIMEOUT, prompt=VERIFY_PROMPT):
     """Run the real gemini CLI headless against the bridge.
 
     Returns (ok, reply): ok is True when the upstream model answered with the
@@ -301,7 +306,7 @@ def launcher_script(platform=None, port=PORT):
         'if command -v litellm >/dev/null 2>&1; then\n'
         f'  litellm --config "{cfg}" --port {port} &\n'
         'else\n'
-        '  echo "[tokenless] litellm not found - run: python3 -m pip install litellm"\n'
+        '  echo "[tokenless] litellm not found - run: python3 -m pip install \'litellm[proxy]\'"\n'
         '  exit 1\n'
         'fi\n'
         "BRIDGE_PID=$!\n"

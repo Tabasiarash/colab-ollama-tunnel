@@ -179,19 +179,20 @@ def install_litellm():
     print(YELLOW("LiteLLM proxy (the Gemini <-> OpenAI bridge) is not installed."))
     print(DIM("  The Libre deployment of 'litellm' is a single pip package; it pulls in"))
     print(DIM("  a number of dependencies on first run, so this is the one heavier step."))
-    if not yn("  Auto-install it now (python3 -m pip install litellm)?", default=True):
+    if not yn("  Auto-install it now (python3 -m pip install 'litellm[proxy]')?", default=True):
         print("  Skipping - the bridge config will still be written; start litellm later:")
         print("  " + " ".join(GB.bridge_command()))
         return False
-    print("  Running: python3 -m pip install litellm  (this can take a few minutes)...")
+    print("  Running: python3 -m pip install 'litellm[proxy]'  (a few minutes)...")
     try:
-        rc = subprocess.run([sys.executable, "-m", "pip", "install", "litellm"]).returncode
+        rc = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "litellm[proxy]"]).returncode
     except Exception as exc:  # pragma: no cover
         print(RED(f"  Install failed: {exc}"))
         return False
     if rc != 0 or not GB.find_litellm():
         print(RED("  Install did not succeed."))
-        print("  Manual install:  python3 -m pip install litellm")
+        print("  Manual install:  python3 -m pip install 'litellm[proxy]'")
         return False
     print(GREEN("  done."))
     return True

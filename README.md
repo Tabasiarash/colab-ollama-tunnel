@@ -147,9 +147,12 @@ Notes:
   or `pkill -f "litellm --config"`.
 - **`--sandbox=false` is required** — Gemini CLI does not forward `GOOGLE_GEMINI_BASE_URL` into its
   bundled sandbox container (google-gemini/gemini-cli#2168), so code actions run on your machine.
-- LiteLLM needs Python (`python3 -m pip install litellm`) and is started automatically; the
-  `model_group_alias` map covers the model ids Gemini CLI 0.47 requests. If a future gemini update
-  requests a new id, add it to `~/.tokenless-cli/litellm_config.yaml` and restart the bridge.
+- LiteLLM needs Python (`python3 -m pip install 'litellm[proxy]'`) and is started automatically; the
+  `model_group_alias` map covers the model ids Gemini CLI requests. If a future gemini update requests a
+  new id, add it to `~/.tokenless-cli/litellm_config.yaml` and restart the bridge.
+- After the bridge starts, the wizard runs a **headless verify** (`gemini --sandbox=false -p ... -m
+  gemini-3.1-flash-preview`) and prints the model's actual reply — automatic proof that the CLI is
+  routed to the pulled Colab model, not to Google.
 
 The notebook also prints a copy-paste-ready `opencode.jsonc` block if you prefer to edit the config by
 hand. `opencode.jsonc.example` is the same template with a placeholder URL.

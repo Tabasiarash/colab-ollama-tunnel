@@ -48,6 +48,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, json.dumps({"error": {"message": "not found"}}).encode())
 
     def do_POST(self):
+        if ":generateContent" in self.path:
+            if "Authorization" not in self.headers:
+                self._send(500, json.dumps({"error": {"message": "auth required"}}).encode())
+                return
+            length = int(self.headers.get("Content-Length", 0))
+            req = json.loads(self.rfile.read(length) or b"{}")
+            texts = " ".join(p.get("text", "") for c in req.get("contents", [])
+                             for p in c.get("parts", []))
+            text = "tokenless-ok" if "tokenless-ok" in texts else "tunnel OK"
+            body = {"candidates": [{"content": {"parts": [{"text": text}], "role": "model"},
+                                    "finishReason": "STOP", "index": 0}],
+                    "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 1,
+                                      "totalTokenCount": 6}}
+            self._send(200, json.dumps(body).encode())
+            return
         if self.path != "/v1/chat/completions":
             self._send(404, json.dumps({"error": {"message": "not found"}}).encode())
             return

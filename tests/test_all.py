@@ -436,6 +436,15 @@ def test_gemini_verify():
         ok("custom marker respected")
 
 
+def test_smoke_bridge_auth():
+    print("test: smoke_bridge sends the master key (auth required by the proxy)")
+    reply = GB.smoke_bridge(port=PORT, timeout=20)
+    if reply == "tunnel OK":
+        ok("smoke_bridge -> Gemini endpoint with Authorization header")
+    else:
+        bad(f"smoke_bridge replied {reply!r} (should be 'tunnel OK')")
+
+
 def test_build_files():
     print("test: build artifacts")
     for rel in ["build/gen_icon.py", "build/mac_build.sh", "build/win_build.bat",
@@ -501,6 +510,7 @@ def main():
         test_smoke_status()
         test_gemini_launcher()
         test_gemini_verify()
+        test_smoke_bridge_auth()
         test_build_files()
         test_notebook()
     finally:
