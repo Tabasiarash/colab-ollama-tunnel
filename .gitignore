@@ -15,3 +15,12 @@ dist/
 build/Tokenless CLI Wizard/
 build/TokenlessIcon.iconset/
 build/*.icns
+
+# local scratch
+bisect/
+final/
+full/
+out/
+push/
+testpush/
+kaggle_ollama.ipynb
