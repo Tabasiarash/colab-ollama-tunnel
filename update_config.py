@@ -14,6 +14,7 @@ params, context/output limits).
 The same logic is exposed as write_config() and reused by wizard.py.
 """
 import json
+import os
 import re
 from pathlib import Path
 
@@ -23,7 +24,10 @@ DEFAULT_MODEL = "qwen2.5-coder:14b"
 
 
 def default_config_path():
-    """Cross-platform opencode config path (macOS + Windows)."""
+    """Cross-platform opencode config path (macOS + Windows); TOKENLESS_OPCODE_CONFIG overrides."""
+    env = os.environ.get("TOKENLESS_OPCODE_CONFIG")
+    if env:
+        return Path(env)
     return Path.home() / ".config" / "opencode" / "opencode.jsonc"
 
 

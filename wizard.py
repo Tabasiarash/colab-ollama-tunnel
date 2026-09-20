@@ -330,6 +330,7 @@ def configure_opencode(base, model):
             print("  Skipping - you can point opencode manually later.")
             return None
         src = WIZARD_DIR / "opencode.jsonc.example"
+        cfg.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(src, cfg)
     try:
         path, model, base = write_config(base, model)

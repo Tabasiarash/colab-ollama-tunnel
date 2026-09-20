@@ -59,7 +59,7 @@ def test_write_config():
     d = Path(tempfile.mkdtemp(prefix="wiz_"))
     cfg = d / ".config" / "opencode" / "opencode.jsonc"
     cfg.parent.mkdir(parents=True)
-    shutil.copy(Path.home() / ".config" / "opencode" / "opencode.jsonc", cfg)
+    shutil.copy(REPO / "opencode.jsonc.example", cfg)
 
     path, model, base = write_config("https://x.y.trycloudflare.com/v1/", "qwen2.5-coder:14b", path=cfg)
     data = json.loads(cfg.read_text())
@@ -160,7 +160,7 @@ def test_wizard_flow():
     home = Path(tempfile.mkdtemp(prefix="wizhome_"))
     cfg = home / ".config" / "opencode" / "opencode.jsonc"
     cfg.parent.mkdir(parents=True)
-    shutil.copy(Path.home() / ".config" / "opencode" / "opencode.jsonc", cfg)
+    shutil.copy(REPO / "opencode.jsonc.example", cfg)
     state = home / "last_setup.json"
 
     # first run: engine opencode | BASE URL | model menu pick 2 (= qwen2.5-coder:7b) | smoke y |
@@ -210,6 +210,29 @@ def test_wizard_flow():
         ok("second run reused last setup")
     else:
         bad("reuse path did not print 'reusing'")
+
+
+def test_wizard_fresh_home():
+    print("test: wizard creates opencode config when ~/.config/opencode is missing")
+    home = Path(tempfile.mkdtemp(prefix="wizfresh_"))
+    state = home / "last_setup.json"
+    stdin = "\n".join(["1", "http://127.0.0.1:11435", "2",
+                       "y",   # create opencode config from example
+                       "y",   # smoke test
+                       "n", "n", ""])
+    env = dict(os.environ, HOME=str(home), WIZARD_STATE=str(state),
+               TOKENLESS_NO_LAUNCH="1", BROWSER="/usr/bin/true", NO_COLOR="1")
+    proc = subprocess.run([sys.executable, str(REPO / "wizard.py")],
+                          input=stdin, capture_output=True, text=True, env=env, timeout=120)
+    out = proc.stdout + proc.stderr
+    if proc.returncode != 0:
+        bad(f"fresh-home wizard exited {proc.returncode}: {out[-2000:]}")
+        return
+    cfg = home / ".config" / "opencode" / "opencode.jsonc"
+    if cfg.exists() and "qwen2.5-coder:7b" in cfg.read_text():
+        ok(f"wizard created config from example on fresh home ({cfg.name})")
+    else:
+        bad(f"config not created on fresh home: {cfg}")
 
 
 def test_gemini_bridge():
@@ -502,6 +525,7 @@ def main():
         test_normalize()
         test_endpoint_contract()
         test_wizard_flow()
+        test_wizard_fresh_home()
         test_gemini_bridge()
         test_gemini_wizard_flow()
         test_version()
