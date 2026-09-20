@@ -386,6 +386,17 @@ def run_gemini_cli(bridge):
             print(GREEN("  ✔ model replied (Gemini protocol):") + ("  " + reply[:90] if reply else ""))
         else:
             print(YELLOW("  • bridge smoke test did not complete - first load can be slow."))
+        ok_v, reply_v = GB.verify_gemini_cli()
+        if ok_v:
+            print(GREEN("  ✔ gemini CLI replied (headless, real run):"))
+            for line in reply_v.splitlines()[:6]:
+                print("    " + line)
+        else:
+            print(YELLOW("  • gemini CLI headless verify did not complete yet:"))
+            if reply_v:
+                print("    " + " ".join(reply_v.split())[:160])
+            print(DIM("    retry manually: GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:4000 "
+                      f"GEMINI_API_KEY={GB.MASTER_KEY} gemini --sandbox=false -m {GB.FIRST_MODEL_ID}"))
     print(GREEN("  launching gemini (interactive - exit with /quit when done)..."))
     print(DIM(f"    env  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:{GB.PORT}  "
               f"GEMINI_API_KEY={GB.MASTER_KEY}"))

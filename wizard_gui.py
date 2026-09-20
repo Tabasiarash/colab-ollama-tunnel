@@ -115,7 +115,9 @@ class WizardApp:
         self.chat_btn = ttk.Button(f, text="Open browser chat", command=self.on_chat, state="disabled")
         self.gemini_btn = ttk.Button(f, text="Launch Gemini CLI", command=self.on_launch_gemini,
                                      state="disabled")
-        for b in (self.write_btn, self.test_btn, self.chat_btn, self.gemini_btn):
+        self.verify_btn = ttk.Button(f, text="Verify Gemini CLI", command=self.on_verify_gemini,
+                                     state="disabled")
+        for b in (self.write_btn, self.test_btn, self.chat_btn, self.gemini_btn, self.verify_btn):
             b.pack(side="left", padx=(0, 8))
 
     def _build_log(self):
@@ -139,7 +141,7 @@ class WizardApp:
 
     def _busy(self, flag):
         state = "disabled" if flag else "normal"
-        for b in (self.check_btn, self.write_btn, self.test_btn):
+        for b in (self.check_btn, self.write_btn, self.test_btn, self.verify_btn):
             b.configure(state=state)
         self.root.update_idletasks()
 
@@ -198,6 +200,7 @@ class WizardApp:
             self.test_btn.configure(state="normal")
             self.chat_btn.configure(state="normal")
             self.gemini_btn.configure(state="normal" if GB.find_gemini() or GB.find_litellm() else "disabled")
+            self.verify_btn.configure(state="normal" if GB.find_gemini() and GB.find_litellm() else "disabled")
 
         self._run_async(work, done)
 
@@ -271,6 +274,57 @@ class WizardApp:
         url = html.as_uri() + "?" + q
         webbrowser.open(url)
         self._log(f"opened browser chat:\n  {url}", "info")
+
+    def on_verify_gemini(self):
+        if not self._require(self.base, "Check the tunnel"):
+            return
+        if not GB.find_litellm():
+            messagebox.showwarning(
+                "LiteLLM missing",
+                "The Gemini bridge needs LiteLLM.\n\npython3 -m pip install litellm",
+            )
+            return
+        if not GB.find_gemini():
+            messagebox.showwarning(
+                "Gemini CLI missing",
+                "gemini CLI not found.\n\nnpm install -g @google/gemini-cli",
+            )
+            return
+        model = self.model_var.get().strip() or "qwen2.5-coder:14b"
+        try:
+            cfg = GB.write_bridge_config(model, http_base(self.base))
+        except Exception as exc:  # noqa: BLE001
+            self._log(f"  ✘ {exc}", "err")
+            return
+        self._log(f"  ✔ bridge config: {cfg}", "ok")
+        self._busy(True)
+
+        def work():
+            if not GB.wait_ready(timeout=6):
+                proc = GB.launch_bridge(cfg, port=GB.PORT,
+                                        log_path=GB.bridge_dir() / "litellm.log")
+                if proc is None:
+                    return ("error", "could not start litellm")
+                if not GB.wait_ready(timeout=120):
+                    return ("error", "bridge did not become ready in 120s")
+            return GB.verify_gemini_cli()
+
+        def done(res):
+            self._busy(False)
+            if res[0] == "error":
+                self._log(f"  ✘ {res[1]}", "err")
+                return
+            ok, reply = res
+            if ok:
+                self._log("  ✔ gemini CLI replied (headless, real run):", "ok")
+                for line in reply.splitlines()[:6]:
+                    self._log("    " + line, "ok")
+                self.status.configure(text="gemini CLI verified")
+            else:
+                self._log("  • gemini CLI verify did not complete:", "warn")
+                self._log("    " + (" ".join(reply.split())[:160] if reply else "no output"), "warn")
+
+        self._run_async(work, done)
 
     def on_launch_gemini(self):
         if not self._require(self.base, "Check the tunnel"):

@@ -30,6 +30,7 @@ MASTER_KEY = "sk-tokenless-dummy"
 PORT = 4000
 MODEL_GROUP = "colab-tunnel"
 FIRST_MODEL_ID = "gemini-3.1-flash-preview"
+VERIFY_PROMPT = "Reply with exactly: tokenless-ok"
 
 GEMINI_MODEL_IDS = [
     "gemini-3.1-pro-preview",
@@ -226,6 +227,43 @@ def smoke_bridge(model_id=FIRST_MODEL_ID, port=PORT, timeout=300):
         return (parts[0].get("text") or "").strip() if parts else ""
     except Exception:
         return None
+
+
+def verify_command(cli=None, model_id=FIRST_MODEL_ID, prompt=VERIFY_PROMPT):
+    """Headless one-shot argv for the gemini CLI against the bridge."""
+    cmd = gemini_command(cli)
+    cmd += ["--skip-trust", "-m", model_id, "-p", prompt]
+    return cmd
+
+
+def _has_marker(text, marker="tokenless-ok"):
+    return bool(text) and marker in (text or "")
+
+
+def verify_gemini_cli(cli=None, port=PORT, timeout=180, prompt=VERIFY_PROMPT):
+    """Run the real gemini CLI headless against the bridge.
+
+    Returns (ok, reply): ok is True when the upstream model answered with the
+    marker, reply is the CLI's captured text (stdout + stderr). This is the
+    automatic proof that the gemini CLI is wired to the pulled model.
+    """
+    cli = cli or find_gemini()
+    if not cli:
+        return False, "gemini CLI not found - install with: npm install -g @google/gemini-cli"
+    try:
+        proc = subprocess.run(
+            verify_command(cli, prompt=prompt),
+            env=gemini_env(port),
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"headless gemini timed out after {timeout}s (first model load can be slow)"
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+    out = (proc.stdout or "").strip()
+    if proc.stderr and proc.stderr.strip():
+        out = out + ("\n" + proc.stderr.strip())
+    return _has_marker(out), out.strip()
 
 
 def launch_gemini(cli=None, port=PORT, extra=None):

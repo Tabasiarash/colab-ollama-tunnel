@@ -406,6 +406,36 @@ def test_gemini_launcher():
         bad(".sh launcher should be executable")
 
 
+def test_gemini_verify():
+    print("test: gemini CLI headless verify (argv + marker, no subprocess)")
+    cmd = ["gemini", "--sandbox=false"]
+    if GB.gemini_command("gemini") != cmd:
+        bad(f"gemini_command base = {GB.gemini_command('gemini')}")
+    vc = GB.verify_command("gemini")
+    for flag in ("--sandbox=false", "--skip-trust", "-m", GB.FIRST_MODEL_ID, "-p",
+                 GB.VERIFY_PROMPT):
+        (ok if flag in vc else bad)(f"verify_command contains {flag} -> {vc}")
+    if vc.index("--skip-trust") > vc.index("--sandbox=false"):
+        ok("verify_command appends headless flags after --sandbox=false")
+    else:
+        bad("flag order unexpected")
+    markers = {
+        "tokenless-ok": True,
+        "**tokenless-ok**": True,
+        "Sure! The phrase is: tokenless-ok": True,
+        "": False,
+        "I can't help with that": False,
+        None: False,
+    }
+    for text, want in markers.items():
+        got = GB._has_marker(text)
+        (ok if got is want else bad)(f"_has_marker({text!r}) = {got} (want {want})")
+    if GB._has_marker("tokenless-ok", marker="nosecret"):
+        bad("custom marker respected")
+    else:
+        ok("custom marker respected")
+
+
 def test_build_files():
     print("test: build artifacts")
     for rel in ["build/gen_icon.py", "build/mac_build.sh", "build/win_build.bat",
@@ -470,6 +500,7 @@ def main():
         test_gui_module()
         test_smoke_status()
         test_gemini_launcher()
+        test_gemini_verify()
         test_build_files()
         test_notebook()
     finally:

@@ -55,6 +55,8 @@ class Handler(BaseHTTPRequestHandler):
         req = json.loads(self.rfile.read(length) or b"{}")
         stream = bool(req.get("stream"))
         model = req.get("model", "qwen2.5-coder:14b")
+        texts = " ".join(m.get("content", "") for m in req.get("messages", []))
+        reply_text = "tokenless-ok" if "tokenless-ok" in texts else "tunnel OK"
         if stream:
             chunks = [
                 {"id": "c", "object": "chat.completion.chunk", "model": model, "choices": [
@@ -70,7 +72,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, body, ctype="text/event-stream")
         else:
             reply = {"id": "c", "object": "chat.completion", "model": model,
-                     "choices": [{"index": 0, "message": {"role": "assistant", "content": "tunnel OK"},
+                     "choices": [{"index": 0, "message": {"role": "assistant", "content": reply_text},
                                   "finish_reason": "stop"}],
                      "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}}
             self._send(200, json.dumps(reply).encode())
