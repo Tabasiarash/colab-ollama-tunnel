@@ -1,0 +1,15 @@
+{
+  "id": "arashtabassi/nb-final1",
+  "title": "Nb Final 1",
+  "code_file": "final.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "competition_sources": [],
+  "dataset_sources": [],
+  "kernel_sources": [],
+  "model_sources": [],
+  "keywords": []
+}

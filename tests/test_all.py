@@ -37,6 +37,7 @@ from update_config import write_config  # noqa: E402
 from wizard import smoke_status  # noqa: E402
 
 PORT = 11435
+HARNESS_PORT = PORT + 100
 BASE = f"http://127.0.0.1:{PORT}"
 
 PASS, FAIL = 0, 0
@@ -147,7 +148,7 @@ def test_normalize():
         ("https://xxx.trycloudflare.com", "https://xxx.trycloudflare.com"),
         ("https://xxx.trycloudflare.com/v1", "https://xxx.trycloudflare.com"),
         ("https://xxx.trycloudflare.com/v1/", "https://xxx.trycloudflare.com"),
-        ("  http://127.0.0.1:11435  ", "http://127.0.0.1:11435"),
+        ("  http://127.0.0.1:12345  ", "http://127.0.0.1:12345"),
     ]
     for raw, want in cases:
         got = W.normalize_base(raw)
@@ -167,7 +168,7 @@ def test_wizard_flow():
     #            open browser? n | LAN? n
     stdin = "\n".join([
         "1",                       # engine -> opencode
-        "http://127.0.0.1:11435",  # BASE URL
+        f"http://127.0.0.1:{HARNESS_PORT}",  # BASE URL
         "2",                       # model #2 -> qwen2.5-coder:7b
         "y",                       # smoke test
         "n",                       # open chat UI now? (no browser in tests)
@@ -178,8 +179,9 @@ def test_wizard_flow():
                HOME=str(home),
                WIZARD_STATE=str(state),
                BROWSER="/usr/bin/true",
+               MOCK_PORT=str(HARNESS_PORT),
                NO_COLOR="1")
-    proc = subprocess.run([sys.executable, str(REPO / "wizard.py")],
+    proc = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
                           input=stdin, capture_output=True, text=True, env=env, timeout=120)
     out = proc.stdout + proc.stderr
     if proc.returncode != 0:
@@ -190,7 +192,7 @@ def test_wizard_flow():
     ok(f"config written baseURL = {data['provider']['ollama']['options']['baseURL']}")
     if "ollama/qwen2.5-coder:7b" != data["model"]:
         bad("expected model pick #2 -> ollama/qwen2.5-coder:7b")
-    if f"{BASE}/v1" not in out and "127.0.0.1:11435/v1" not in out:
+    if f"{BASE}/v1" not in out and f"127.0.0.1:{HARNESS_PORT}/v1" not in out:
         bad("BASE URL not printed in summary")
     else:
         ok("BASE URL printed in summary")
@@ -202,7 +204,7 @@ def test_wizard_flow():
         ok("last_setup.json saved")
     # second run reuses saved state
     stdin2 = "\n".join(["y", "y", "n", "n", ""])  # reuse, smoke, no browser, no LAN
-    proc2 = subprocess.run([sys.executable, str(REPO / "wizard.py")],
+    proc2 = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
                            input=stdin2, capture_output=True, text=True, env=env, timeout=120)
     if proc2.returncode != 0:
         bad(f"reuse run exited {proc2.returncode}: {(proc2.stdout+proc2.stderr)[-2000:]}")
@@ -216,13 +218,13 @@ def test_wizard_fresh_home():
     print("test: wizard creates opencode config when ~/.config/opencode is missing")
     home = Path(tempfile.mkdtemp(prefix="wizfresh_"))
     state = home / "last_setup.json"
-    stdin = "\n".join(["1", "http://127.0.0.1:11435", "2",
+    stdin = "\n".join(["1", f"http://127.0.0.1:{HARNESS_PORT}", "2",
                        "y",   # create opencode config from example
                        "y",   # smoke test
                        "n", "n", ""])
     env = dict(os.environ, HOME=str(home), WIZARD_STATE=str(state),
-               TOKENLESS_NO_LAUNCH="1", BROWSER="/usr/bin/true", NO_COLOR="1")
-    proc = subprocess.run([sys.executable, str(REPO / "wizard.py")],
+               TOKENLESS_NO_LAUNCH="1", BROWSER="/usr/bin/true", MOCK_PORT=str(HARNESS_PORT), NO_COLOR="1")
+    proc = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
                           input=stdin, capture_output=True, text=True, env=env, timeout=120)
     out = proc.stdout + proc.stderr
     if proc.returncode != 0:
@@ -303,7 +305,7 @@ def test_gemini_wizard_flow():
     tokenless = home / "tokenless"
     stdin = "\n".join([
         "2",                       # engine -> gemini CLI
-        "http://127.0.0.1:11435",  # BASE URL
+        f"http://127.0.0.1:{HARNESS_PORT}",  # BASE URL
         "1",                       # model #1 -> qwen2.5-coder:14b
         "y",                       # smoke test
         "n",                       # open chat UI now?
@@ -316,8 +318,9 @@ def test_gemini_wizard_flow():
                TOKENLESS_STATE=str(tokenless),
                TOKENLESS_NO_LAUNCH="1",
                BROWSER="/usr/bin/true",
+               MOCK_PORT=str(HARNESS_PORT),
                NO_COLOR="1")
-    proc = subprocess.run([sys.executable, str(REPO / "wizard.py")],
+    proc = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
                           input=stdin, capture_output=True, text=True, env=env, timeout=120)
     out = proc.stdout + proc.stderr
     if proc.returncode != 0:
@@ -331,7 +334,7 @@ def test_gemini_wizard_flow():
     if state.exists():
         saved = json.loads(state.read_text())
         (ok if saved.get("engine") == "gemini" else bad)(f"last_setup engine saved = {saved.get('engine')}")
-        (ok if saved.get("base") == BASE else bad)("last_setup base saved")
+        (ok if saved.get("base") == f"http://127.0.0.1:{HARNESS_PORT}" else bad)("last_setup base saved")
     else:
         bad("last_setup.json not saved for gemini engine")
     if "launch skipped" in out:
@@ -344,7 +347,7 @@ def test_gemini_wizard_flow():
         bad("smoke reply missing from stdout")
     # rerun: reuse path should keep engine choice without re-asking
     stdin2 = "\n".join(["y", "y", "n", "n", ""])
-    proc2 = subprocess.run([sys.executable, str(REPO / "wizard.py")],
+    proc2 = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
                            input=stdin2, capture_output=True, text=True, env=env, timeout=120)
     out2 = proc2.stdout + proc2.stderr
     if proc2.returncode != 0:
