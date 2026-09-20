@@ -31,13 +31,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import gemini_bridge as GB  # noqa: E402
 import mock_ollama  # noqa: E402
+import wizard  # noqa: E402
 import version  # noqa: E402
 import wizard_gui  # noqa: E402
 from update_config import write_config  # noqa: E402
 from wizard import smoke_status  # noqa: E402
 
 PORT = 11435
-HARNESS_PORT = PORT + 100
 BASE = f"http://127.0.0.1:{PORT}"
 
 PASS, FAIL = 0, 0
@@ -156,6 +156,51 @@ def test_normalize():
     ok("model menu builds [1..n] with free-type option")
 
 
+def run_wizard_inline(lines, home, tokenless=None):
+    """Drive wizard.main() in this process with scripted input + isolated paths.
+
+    The mock tunnel server runs in *this* process, so no child-process loopback
+    is needed (GitHub's macOS runners sandbox child-process sockets).
+    """
+    import io
+    import contextlib
+    from unittest import mock
+
+    state = home / "last_setup.json"
+    tokenless = tokenless or (home / "tokenless")
+    tokenless.mkdir(parents=True, exist_ok=True)
+    keys = ("WIZARD_STATE", "TOKENLESS_STATE", "TOKENLESS_OPCODE_CONFIG", "TOKENLESS_NO_LAUNCH")
+    saved_env = {k: os.environ.get(k) for k in keys}
+    os.environ.update({
+        "WIZARD_STATE": str(state),
+        "TOKENLESS_STATE": str(tokenless),
+        "TOKENLESS_OPCODE_CONFIG": str(home / ".config" / "opencode" / "opencode.jsonc"),
+        "TOKENLESS_NO_LAUNCH": "1",
+    })
+    saved_setup = wizard.SETUP_JSON
+    wizard.SETUP_JSON = state
+    buf = io.StringIO()
+    rc = None
+    try:
+        with mock.patch("wizard.find_opencode", return_value="/usr/local/bin/opencode"), \
+                mock.patch.object(wizard.GB, "find_gemini", return_value="/usr/local/bin/gemini"), \
+                mock.patch.object(wizard.GB, "find_litellm", return_value="/usr/local/bin/litellm"), \
+                contextlib.redirect_stdout(buf), \
+                mock.patch("builtins.input", side_effect=lines):
+            rc = wizard.main()
+    except Exception as exc:  # surface wizard crashes as a test failure, not a suite abort
+        rc = 1
+        buf.write(f"\n[exception] {exc!r}\n")
+    finally:
+        wizard.SETUP_JSON = saved_setup
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    return rc, buf.getvalue()
+
+
 def test_wizard_flow():
     print("test: wizard full flow (headless, against mock server)")
     home = Path(tempfile.mkdtemp(prefix="wizhome_"))
@@ -166,33 +211,17 @@ def test_wizard_flow():
 
     # first run: engine opencode | BASE URL | model menu pick 2 (= qwen2.5-coder:7b) | smoke y |
     #            open browser? n | LAN? n
-    stdin = "\n".join([
-        "1",                       # engine -> opencode
-        f"http://127.0.0.1:{HARNESS_PORT}",  # BASE URL
-        "2",                       # model #2 -> qwen2.5-coder:7b
-        "y",                       # smoke test
-        "n",                       # open chat UI now? (no browser in tests)
-        "n",                       # LAN serve?
-        "",
-    ])
-    env = dict(os.environ,
-               HOME=str(home),
-               WIZARD_STATE=str(state),
-               BROWSER="/usr/bin/true",
-               MOCK_PORT=str(HARNESS_PORT),
-               NO_COLOR="1")
-    proc = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
-                          input=stdin, capture_output=True, text=True, env=env, timeout=120)
-    out = proc.stdout + proc.stderr
-    if proc.returncode != 0:
-        bad(f"wizard exited {proc.returncode}: {out[-3000:]}")
+    lines = ["1", BASE, "2", "y", "n", "n"]
+    rc, out = run_wizard_inline(lines, home)
+    if rc != 0:
+        bad(f"wizard exited {rc}: {out[-3000:]}")
         return
     data = json.loads(cfg.read_text())
     ok(f"config written model = {data['model']}")
     ok(f"config written baseURL = {data['provider']['ollama']['options']['baseURL']}")
     if "ollama/qwen2.5-coder:7b" != data["model"]:
         bad("expected model pick #2 -> ollama/qwen2.5-coder:7b")
-    if f"{BASE}/v1" not in out and f"127.0.0.1:{HARNESS_PORT}/v1" not in out:
+    if f"{BASE}/v1" not in out:
         bad("BASE URL not printed in summary")
     else:
         ok("BASE URL printed in summary")
@@ -203,12 +232,10 @@ def test_wizard_flow():
     if state.exists():
         ok("last_setup.json saved")
     # second run reuses saved state
-    stdin2 = "\n".join(["y", "y", "n", "n", ""])  # reuse, smoke, no browser, no LAN
-    proc2 = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
-                           input=stdin2, capture_output=True, text=True, env=env, timeout=120)
-    if proc2.returncode != 0:
-        bad(f"reuse run exited {proc2.returncode}: {(proc2.stdout+proc2.stderr)[-2000:]}")
-    elif "reusing" in proc2.stdout and "ollama/qwen2.5-coder:7b" in proc2.stdout:
+    rc2, out2 = run_wizard_inline(["y", "y", "n", "n"], home)
+    if rc2 != 0:
+        bad(f"reuse run exited {rc2}: {out2[-2000:]}")
+    elif "reusing" in out2 and "ollama/qwen2.5-coder:7b" in out2:
         ok("second run reused last setup")
     else:
         bad("reuse path did not print 'reusing'")
@@ -217,18 +244,13 @@ def test_wizard_flow():
 def test_wizard_fresh_home():
     print("test: wizard creates opencode config when ~/.config/opencode is missing")
     home = Path(tempfile.mkdtemp(prefix="wizfresh_"))
-    state = home / "last_setup.json"
-    stdin = "\n".join(["1", f"http://127.0.0.1:{HARNESS_PORT}", "2",
-                       "y",   # create opencode config from example
-                       "y",   # smoke test
-                       "n", "n", ""])
-    env = dict(os.environ, HOME=str(home), WIZARD_STATE=str(state),
-               TOKENLESS_NO_LAUNCH="1", BROWSER="/usr/bin/true", MOCK_PORT=str(HARNESS_PORT), NO_COLOR="1")
-    proc = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
-                          input=stdin, capture_output=True, text=True, env=env, timeout=120)
-    out = proc.stdout + proc.stderr
-    if proc.returncode != 0:
-        bad(f"fresh-home wizard exited {proc.returncode}: {out[-2000:]}")
+    lines = ["1", BASE, "2",
+             "y",   # create opencode config from example
+             "y",   # smoke test
+             "n", "n"]
+    rc, out = run_wizard_inline(lines, home)
+    if rc != 0:
+        bad(f"fresh-home wizard exited {rc}: {out[-2000:]}")
         return
     cfg = home / ".config" / "opencode" / "opencode.jsonc"
     if cfg.exists() and "qwen2.5-coder:7b" in cfg.read_text():
@@ -303,28 +325,10 @@ def test_gemini_wizard_flow():
     home = Path(tempfile.mkdtemp(prefix="wizgem_"))
     state = home / "last_setup.json"
     tokenless = home / "tokenless"
-    stdin = "\n".join([
-        "2",                       # engine -> gemini CLI
-        f"http://127.0.0.1:{HARNESS_PORT}",  # BASE URL
-        "1",                       # model #1 -> qwen2.5-coder:14b
-        "y",                       # smoke test
-        "n",                       # open chat UI now?
-        "n",                       # LAN serve?
-        "",
-    ])
-    env = dict(os.environ,
-               HOME=str(home),
-               WIZARD_STATE=str(state),
-               TOKENLESS_STATE=str(tokenless),
-               TOKENLESS_NO_LAUNCH="1",
-               BROWSER="/usr/bin/true",
-               MOCK_PORT=str(HARNESS_PORT),
-               NO_COLOR="1")
-    proc = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
-                          input=stdin, capture_output=True, text=True, env=env, timeout=120)
-    out = proc.stdout + proc.stderr
-    if proc.returncode != 0:
-        bad(f"gemini wizard exited {proc.returncode}: {out[-3000:]}")
+    lines = ["2", BASE, "1", "y", "n", "n"]
+    rc, out = run_wizard_inline(lines, home, tokenless=tokenless)
+    if rc != 0:
+        bad(f"gemini wizard exited {rc}: {out[-3000:]}")
         return
     bridge = tokenless / "litellm_config.yaml"
     if bridge.exists() and "ollama_chat/qwen2.5-coder:14b" in bridge.read_text():
@@ -334,7 +338,7 @@ def test_gemini_wizard_flow():
     if state.exists():
         saved = json.loads(state.read_text())
         (ok if saved.get("engine") == "gemini" else bad)(f"last_setup engine saved = {saved.get('engine')}")
-        (ok if saved.get("base") == f"http://127.0.0.1:{HARNESS_PORT}" else bad)("last_setup base saved")
+        (ok if saved.get("base") == BASE else bad)("last_setup base saved")
     else:
         bad("last_setup.json not saved for gemini engine")
     if "launch skipped" in out:
@@ -346,12 +350,9 @@ def test_gemini_wizard_flow():
     else:
         bad("smoke reply missing from stdout")
     # rerun: reuse path should keep engine choice without re-asking
-    stdin2 = "\n".join(["y", "y", "n", "n", ""])
-    proc2 = subprocess.run([sys.executable, str(REPO / "tests" / "_harness_wizard.py")],
-                           input=stdin2, capture_output=True, text=True, env=env, timeout=120)
-    out2 = proc2.stdout + proc2.stderr
-    if proc2.returncode != 0:
-        bad(f"gemini reuse run exited {proc2.returncode}: {out2[-2000:]}")
+    rc2, out2 = run_wizard_inline(["y", "y", "n", "n"], home, tokenless=tokenless)
+    if rc2 != 0:
+        bad(f"gemini reuse run exited {rc2}: {out2[-2000:]}")
     elif "engine: gemini" in out2:
         ok("reuse run kept gemini engine")
     else:
