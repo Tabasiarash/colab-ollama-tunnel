@@ -1,0 +1,29 @@
+# Tokenless Gemini CLI - LiteLLM proxy config (written by wizard.py).
+# Bridge:  gemini CLI --(Gemini /v1beta)--> LiteLLM :4000 --(OpenAI /v1)--> Colab tunnel
+#
+# Point the gemini CLI at the bridge and launch it (env vars are injected by
+# gemini_bridge.py / wizard.py):
+#
+#   export GOOGLE_GEMINI_BASE_URL="http://127.0.0.1:4000"
+#   export GEMINI_API_KEY="sk-tokenless-dummy"
+#   gemini --sandbox=false
+#
+model_list:
+  - model_name: colab-tunnel
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:14b
+      api_base: https://REPLACE-WITH-BASE-URL.trycloudflare.com
+router_settings:
+  model_group_alias:
+    gemini-3.1-pro-preview: colab-tunnel
+    gemini-3.1-pro-preview-customtools: colab-tunnel
+    gemini-3.1-flash-preview: colab-tunnel
+    gemini-3.1-flash-preview-customtools: colab-tunnel
+    gemini-3.1-flash-lite: colab-tunnel
+    gemini-3-flash-preview: colab-tunnel
+    gemini-3-flash-preview-customtools: colab-tunnel
+    gemini-2.5-pro: colab-tunnel
+    gemini-2.5-flash: colab-tunnel
+    gemini-2.5-flash-lite: colab-tunnel
+general_settings:
+  master_key: sk-tokenless-dummy

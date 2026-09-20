@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Point opencode's Ollama provider at the Colab tunnel.
+"""Point opencode's Ollama provider at the Tokenless CLI tunnel.
 
 Usage (CLI):
     python3 update_config.py BASE_URL [MODEL_ID]

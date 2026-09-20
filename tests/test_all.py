@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""End-to-end tests for the Colab Ollama Tunnel installer (no external deps).
+"""End-to-end tests for the Tokenless CLI installer (no external deps).
 
 Covers:
   1. update_config.write_config against a copy of the live config + a path
      with a non-existent config (simulates first run), idempotency, /v1 & prefix
   2. BASE URL normalization + model listing + menu picking + full wizard flow
-     driven headlessly against the mock Ollama server
-  3. OpenAI-compatible streaming + CORS preflight exactly as web/chat.html uses
-  4. every notebook code cell is valid Python; model-tier thresholds pass
+     (opencode + Tokenless Gemini CLI engines) driven headlessly against the
+     mock Ollama server
+  3. the gemini_bridge: LiteLLM config/YAML/alias-map generation, launch
+     commands, env vars (no processes are launched in tests)
+  4. OpenAI-compatible streaming + CORS preflight exactly as web/chat.html uses
+  5. every notebook code cell is valid Python; model-tier thresholds pass
 """
 import json
 import os
@@ -23,6 +26,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import gemini_bridge as GB  # noqa: E402
 import mock_ollama  # noqa: E402
 from update_config import write_config  # noqa: E402
 
@@ -153,9 +157,10 @@ def test_wizard_flow():
     shutil.copy(Path.home() / ".config" / "opencode" / "opencode.jsonc", cfg)
     state = home / "last_setup.json"
 
-    # first run: BASE URL | model menu pick 2 (= qwen2.5-coder:7b) | smoke y |
+    # first run: engine opencode | BASE URL | model menu pick 2 (= qwen2.5-coder:7b) | smoke y |
     #            open browser? n | LAN? n
     stdin = "\n".join([
+        "1",                       # engine -> opencode
         "http://127.0.0.1:11435",  # BASE URL
         "2",                       # model #2 -> qwen2.5-coder:7b
         "y",                       # smoke test
@@ -201,6 +206,126 @@ def test_wizard_flow():
         bad("reuse path did not print 'reusing'")
 
 
+def test_gemini_bridge():
+    print("test: gemini_bridge (config generation + commands, no launch)")
+    cfg = GB.build_litellm_config("qwen2.5-coder:14b", "https://abc.trycloudflare.com/v1")
+    lit = cfg["model_list"][0]
+    ok(f"model_list entry = {lit['litellm_params']['model']}")
+    if lit["litellm_params"]["model"] != "ollama_chat/qwen2.5-coder:14b":
+        bad("ollama_chat/ prefix expected for litellm")
+    if lit["litellm_params"]["api_base"] != "https://abc.trycloudflare.com":
+        bad(f"api_base should be de-/v1'd, got {lit['litellm_params']['api_base']}")
+    alias = cfg["router_settings"]["model_group_alias"]
+    if len(alias) == len(GB.GEMINI_MODEL_IDS) and set(alias) == set(GB.GEMINI_MODEL_IDS) \
+            and all(v == GB.MODEL_GROUP for v in alias.values()):
+        ok(f"model_group_alias covers all {len(GB.GEMINI_MODEL_IDS)} 0.47 model ids -> {GB.MODEL_GROUP}")
+    else:
+        bad("model_group_alias incomplete/wrong")
+    if cfg["general_settings"]["master_key"] == GB.MASTER_KEY:
+        ok("master_key set for local bridge auth")
+    else:
+        bad("master_key missing")
+
+    # exact YAML layout (stable output = easy diffing for users)
+    lines = ["model_list:",
+             "  - model_name: colab-tunnel",
+             "    litellm_params:",
+             "      model: ollama_chat/qwen2.5-coder:14b",
+             "      api_base: https://abc.trycloudflare.com",
+             "router_settings:",
+             "  model_group_alias:"]
+    lines += [f"    {gid}: colab-tunnel" for gid in GB.GEMINI_MODEL_IDS]
+    lines += ["general_settings:", "  master_key: sk-tokenless-dummy"]
+    expected = "\n".join(lines)
+    got = GB.render_yaml(cfg)
+    (ok if got == expected else bad)("render_yaml layout matches template")
+    if got != expected:
+        print("--- got ---\n" + got + "\n--- want ---\n" + expected)
+
+    d = Path(tempfile.mkdtemp(prefix="gb_"))
+    p = GB.write_bridge_config("qwen2.5-coder:14b", "https://abc.trycloudflare.com/v1",
+                               path=d / "litellm_config.yaml")
+    ok(f"write_bridge_config -> {p.name} ({p.exists()})")
+    if "ollama_chat/qwen2.5-coder:14b" not in p.read_text():
+        bad("written yaml missing model entry")
+
+    cmd = GB.bridge_command(p)
+    if cmd[-4:] == ["--config", str(p), "--port", "4000"] or "--port" in cmd and "4000" in cmd:
+        ok(f"bridge launch cmd = {cmd}")
+    else:
+        bad(f"bridge launch cmd unexpected: {cmd}")
+    gcmd = GB.gemini_command("/fake/gemini")
+    if gcmd == ["/fake/gemini", "--sandbox=false"]:
+        ok("gemini launch always uses --sandbox=false")
+    else:
+        bad(f"gemini cmd unexpected: {gcmd}")
+    env = GB.gemini_env()
+    if env.get("GOOGLE_GEMINI_BASE_URL") == "http://127.0.0.1:4000" \
+            and env.get("GEMINI_API_KEY") == "sk-tokenless-dummy":
+        ok("gemini env points at the local bridge + dummy key")
+    else:
+        bad(f"gemini env wrong: {env.get('GOOGLE_GEMINI_BASE_URL')} / {env.get('GEMINI_API_KEY')}")
+
+
+def test_gemini_wizard_flow():
+    print("test: wizard gemini engine (headless, config-only, no launch)")
+    home = Path(tempfile.mkdtemp(prefix="wizgem_"))
+    state = home / "last_setup.json"
+    tokenless = home / "tokenless"
+    stdin = "\n".join([
+        "2",                       # engine -> gemini CLI
+        "http://127.0.0.1:11435",  # BASE URL
+        "1",                       # model #1 -> qwen2.5-coder:14b
+        "y",                       # smoke test
+        "n",                       # open chat UI now?
+        "n",                       # LAN serve?
+        "",
+    ])
+    env = dict(os.environ,
+               HOME=str(home),
+               WIZARD_STATE=str(state),
+               TOKENLESS_STATE=str(tokenless),
+               TOKENLESS_NO_LAUNCH="1",
+               BROWSER="/usr/bin/true",
+               NO_COLOR="1")
+    proc = subprocess.run([sys.executable, str(REPO / "wizard.py")],
+                          input=stdin, capture_output=True, text=True, env=env, timeout=120)
+    out = proc.stdout + proc.stderr
+    if proc.returncode != 0:
+        bad(f"gemini wizard exited {proc.returncode}: {out[-3000:]}")
+        return
+    bridge = tokenless / "litellm_config.yaml"
+    if bridge.exists() and "ollama_chat/qwen2.5-coder:14b" in bridge.read_text():
+        ok(f"bridge config written to TOKENLESS_STATE ({bridge.name})")
+    else:
+        bad(f"bridge config missing at {bridge}")
+    if state.exists():
+        saved = json.loads(state.read_text())
+        (ok if saved.get("engine") == "gemini" else bad)(f"last_setup engine saved = {saved.get('engine')}")
+        (ok if saved.get("base") == BASE else bad)("last_setup base saved")
+    else:
+        bad("last_setup.json not saved for gemini engine")
+    if "launch skipped" in out:
+        ok("TOKENLESS_NO_LAUNCH respected (no processes started)")
+    else:
+        bad("expected 'launch skipped' in output")
+    if "tunnel OK" in out:
+        ok("tunnel smoke test still ran for gemini engine")
+    else:
+        bad("smoke reply missing from stdout")
+    # rerun: reuse path should keep engine choice without re-asking
+    stdin2 = "\n".join(["y", "y", "n", "n", ""])
+    proc2 = subprocess.run([sys.executable, str(REPO / "wizard.py")],
+                           input=stdin2, capture_output=True, text=True, env=env, timeout=120)
+    out2 = proc2.stdout + proc2.stderr
+    if proc2.returncode != 0:
+        bad(f"gemini reuse run exited {proc2.returncode}: {out2[-2000:]}")
+    elif "engine: gemini" in out2:
+        ok("reuse run kept gemini engine")
+    else:
+        bad("reuse run did not keep gemini engine")
+
+
 def test_notebook():
     print("test: notebook integrity")
     nb = json.loads((REPO / "colab_ollama.ipynb").read_text())
@@ -232,13 +357,15 @@ def test_notebook():
 
 
 def main():
-    print("Colab Ollama Tunnel - test suite\n")
+    print("Tokenless CLI - test suite\n")
     server, _thread = mock_ollama.start(PORT)
     try:
         test_write_config()
         test_normalize()
         test_endpoint_contract()
         test_wizard_flow()
+        test_gemini_bridge()
+        test_gemini_wizard_flow()
         test_notebook()
     finally:
         server.shutdown()

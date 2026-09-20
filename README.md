@@ -1,14 +1,17 @@
-# Colab Ollama Tunnel
+# Tokenless CLI
 
-Run serious open-weight coding models on a free Google Colab GPU and use them from **opencode** (or
-any OpenAI-compatible client) on your own machine — with zero GPU hardware of your own.
+Run serious open-weight coding models on a free Google Colab GPU and use them from **opencode** or
+**Gemini CLI** on your own machine — a truly **tokenless Gemini CLI**: zero API keys, zero token
+costs, zero GPU hardware of your own.
 
 The notebook spins up [Ollama](https://ollama.com) inside a Colab session, auto-picks the best model
 for the GPU you were granted, and exposes it through a temporary public HTTPS tunnel
 ([cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)).
-Your local `opencode` then talks to `https://<host>.trycloudflare.com/v1` like any other API.
+Your local `opencode` talks to `https://<host>.trycloudflare.com/v1` like any other API — and if you
+prefer Google's agent, the wizard wires up the same tunnel as a **Tokenless Gemini CLI** through a
+tiny local [LiteLLM](https://github.com/BerriAI/litellm) bridge.
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Tabasiarash/colab-ollama-tunnel/blob/main/colab_ollama.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Tabasiarash/tokenless-cli/blob/main/colab_ollama.ipynb)
 
 ## How it works
 
@@ -38,10 +41,10 @@ flowchart LR
 ### Option A — install wizard (recommended)
 
 After the notebook prints its `BASE URL`, run the wizard on your machine. It walks you through
-everything step by step, checks the tunnel live, patches opencode, and opens a browser chat:
+everything step by step, checks the tunnel live, configures your CLI, and opens a browser chat:
 
 ```bash
-git clone https://github.com/Tabasiarash/colab-ollama-tunnel.git && cd colab-ollama-tunnel
+git clone https://github.com/Tabasiarash/tokenless-cli.git && cd tokenless-cli
 
 # macOS / Linux:
 python3 wizard.py
@@ -51,10 +54,15 @@ wizard.bat
 ```
 
 The wizard will:
-1. Check prerequisites — and offer to auto-install opencode (`npm install -g opencode-ai`) if missing.
+1. Check prerequisites — and offer to auto-install **opencode** or **Gemini CLI** if missing.
 2. Ask for the **BASE URL** from the notebook, then verify it can reach the tunnel.
 3. Let you pick the **model** from the ones actually pulled on Colab.
-4. Patch `~/.config/opencode/opencode.jsonc` (a `.bak` is kept) and remind you to restart opencode.
+4. Ask which **engine** you want:
+   * **opencode** (direct, recommended) — patches `~/.config/opencode/opencode.jsonc`
+     (a `.bak` is kept); restart opencode when it's done.
+   * **Gemini CLI** — the *Tokenless Gemini CLI*: starts a local LiteLLM bridge on port 4000 that
+     speaks Gemini's API and relays it to the tunnel, then launches `gemini --sandbox=false`.
+   * **Both** — configure opencode and launch the Gemini bridge.
 5. Send a one-shot **test message** through the tunnel, and
 6. Open a **browser chat** (`web/chat.html`) so you can chat with the model right away —
    optionally also served over your LAN (`http://<your-ip>:8080/chat.html`) for your phone.
@@ -64,7 +72,7 @@ Re-running the wizard reuses your last setup.
 ### Option B — manual (`update_config.py`)
 
 1. Open the notebook in Colab:\
-   [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Tabasiarash/colab-ollama-tunnel/blob/main/colab_ollama.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Tabasiarash/tokenless-cli/blob/main/colab_ollama.ipynb)
 2. **Runtime > Change runtime type** → Hardware accelerator: **T4 GPU**.
 3. **Runtime > Run all** — sit back while it pulls the model (~10–20 min first time).
 4. When it finishes, copy the printed `BASE URL` and **model id**.
@@ -72,7 +80,7 @@ Re-running the wizard reuses your last setup.
 
 ```bash
 # clone the helper scripts
-git clone https://github.com/Tabasiarash/colab-ollama-tunnel.git && cd colab-ollama-tunnel
+git clone https://github.com/Tabasiarash/tokenless-cli.git && cd tokenless-cli
 
 # patch ~/.config/opencode/opencode.jsonc (model id is optional)
 python3 update_config.py https://<BASE>.trycloudflare.com qwen2.5-coder:14b
@@ -87,8 +95,42 @@ python3 update_config.py https://<BASE>.trycloudflare.com qwen2.5-coder:14b
 paste the BASE URL, or let the wizard open it pre-configured:
 
 ```
-file:///.../colab-ollama-tunnel/web/chat.html?base=https%3A%2F%2F<BASE>.trycloudflare.com&model=qwen2.5-coder:14b
+file:///.../tokenless-cli/web/chat.html?base=https%3A%2F%2F<BASE>.trycloudflare.com&model=qwen2.5-coder:14b
 ```
+
+## Use it with Gemini CLI (a Tokenless Gemini CLI)
+
+Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) normally talks Google's own API.
+The tunnel only serves OpenAI's `/v1`, so the wizard inserts one translation hop: a local
+[LiteLLM](https://github.com/BerriAI/litellm) proxy on **port 4000** that exposes Gemini's
+`/v1beta/models/...:generateContent` endpoints, maps Gemini CLI's internal model ids onto the Colab
+model, and relays every call through the tunnel as plain OpenAI requests.
+
+```
++----------------+            +---------------------+            +---------------+
+| gemini CLI     |  locally   | LiteLLM proxy :4000 |  HTTPS /v1  | Colab tunnel  |
+|                |------------> (Gemini translation)|-------------> + Ollama model |
+| --sandbox=false| Gemini ./v1beta                    OpenAI ./v1  |
++----------------+            +---------------------+            +---------------+
+```
+
+The wizard does all of this for you when you pick the **Gemini CLI** engine:
+
+```bash
+python3 wizard.py
+# engine: gemini          -> installs litellm, writes ~/.tokenless-cli/litellm_config.yaml,
+#                            starts the bridge, launches gemini --sandbox=false
+# engine: both            -> same, plus opencode's config is patched too
+```
+
+Notes:
+- The bridge runs locally (`litellm --config ... --port 4000`); stop it with `Ctrl+C` in its window
+  or `pkill -f "litellm --config"`.
+- **`--sandbox=false` is required** — Gemini CLI does not forward `GOOGLE_GEMINI_BASE_URL` into its
+  bundled sandbox container (google-gemini/gemini-cli#2168), so code actions run on your machine.
+- LiteLLM needs Python (`python3 -m pip install litellm`) and is started automatically; the
+  `model_group_alias` map covers the model ids Gemini CLI 0.47 requests. If a future gemini update
+  requests a new id, add it to `~/.tokenless-cli/litellm_config.yaml` and restart the bridge.
 
 The notebook also prints a copy-paste-ready `opencode.jsonc` block if you prefer to edit the config by
 hand. `opencode.jsonc.example` is the same template with a placeholder URL.
@@ -144,6 +186,11 @@ idle timeout while running. Disk (~78 GB) and RAM (~12 GB) are enough for every 
 **Can I use it from a VPS with opencode?** Yes — that's the intended setup. Point `baseURL` at the
 tunnel URL; no ports need opening on the VPS either.
 
+**Can I use the tunnel with Google's Gemini CLI?** Yes — the wizard's **Gemini CLI** engine starts a
+local LiteLLM bridge that translates Gemini's API into the tunnel's OpenAI format (see
+["Use it with Gemini CLI"](#use-it-with-gemini-cli-a-tokenless-gemini-cli)). It runs with
+`--sandbox=false` because Gemini CLI doesn't forward custom base URLs into its sandbox.
+
 ## Project layout
 
 ```
@@ -151,6 +198,9 @@ tunnel URL; no ports need opening on the VPS either.
 ├── gen_colab_nb.py          # builds the notebook from source strings
 ├── wizard.py                # interactive installer (macOS / Windows)
 ├── wizard.sh / wizard.bat   # one-line launcher for the wizard
+├── gemini_bridge.py         # "Tokenless Gemini CLI": builds the LiteLLM config,
+│                            #   starts the bridge, launches gemini --sandbox=false
+├── litellm_config.example.yaml  # hand-editable LiteLLM bridge config template
 ├── web/chat.html            # zero-dependency browser chat UI
 ├── update_config.py         # patches ~/.config/opencode/opencode.jsonc with the tunnel
 ├── opencode.jsonc.example   # hand-editable config template

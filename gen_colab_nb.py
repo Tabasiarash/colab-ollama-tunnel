@@ -21,7 +21,7 @@ def code(source):
 
 
 md(
-    """# Colab Ollama Server - free-tier coding LLM via public tunnel
+    """# Tokenless CLI - free Colab GPU for opencode & the Gemini CLI
 
 Runs [Ollama](https://ollama.com) on this Colab VM, pulls a coding model sized to the resources that
 were granted, and exposes it through a temporary public HTTPS tunnel ([cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/))

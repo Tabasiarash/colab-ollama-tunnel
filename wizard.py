@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Install wizard for Colab Ollama Tunnel (macOS + Windows).
+"""Install wizard for Tokenless CLI (macOS + Windows).
 
 Walks you through, step by step:
-  1. prerequisites (opencode CLI, auto-installs if missing)
+  1. pick your engine: opencode (direct) and/or the Tokenless Gemini CLI
+     (via a local LiteLLM bridge); prerequisites auto-install if missing
   2. paste the BASE URL from the Colab notebook (live-checks it)
   3. pick the model pulled on Colab
-  4. patches your opencode config
-  5. opens a browser chat so you can test the model right away
+  4. configures opencode and/or writes + launches the Gemini bridge
+  5. smoke-tests the tunnel and opens a browser chat
      (optionally also served over your LAN for other devices)
 
 Run it with:
@@ -34,6 +35,7 @@ CHAT_HTML = WIZARD_DIR / "web" / "chat.html"
 SETUP_JSON = Path(os.environ.get("WIZARD_STATE") or (WIZARD_DIR / "last_setup.json"))
 
 sys.path.insert(0, str(WIZARD_DIR))
+import gemini_bridge as GB  # noqa: E402
 from update_config import write_config, default_config_path  # noqa: E402
 
 USE_COLOR = os.environ.get("NO_COLOR") is None and sys.stdout.isatty()
@@ -53,15 +55,11 @@ RED = lambda t: c(t, "31")  # noqa: E731
 DIM = lambda t: c(t, "2")  # noqa: E731
 
 BANNER = r"""
-   ____      _       _   ____             _
-  / __ \    | |     | | |  _ \           | |
- | |  | |___| | ___ | |_| |_) | __ _ __ _| |  _ __ ___  _ __
- | |  | / __| |/ _ \| __|  _ < / _` / _` | | | '_ ` _ \| '_ \
- | |__| \__ \ | (_) | |_| |_) | (_| (_| | |_| | | | | | | |_) |
-  \____/|___/_\___/ \__|____/ \__,_\__, |_|_|_| |_| |_| .__/
-                                    __/ |              | |
-                                   |___/               |_|
-   Colab GPU -> Ollama -> {tunnel} -> this machine
+╔══════════════════════════════════════════════════════════════════════╗
+║  Tokenless CLI  —  a free Colab GPU for opencode & the Gemini CLI    ║
+║             zero API keys · zero token costs · zero hardware         ║
+╚══════════════════════════════════════════════════════════════════════╝
+   Colab GPU -> Ollama -> {tunnel} -> your CLI / browser chat
 """
 
 
@@ -127,15 +125,94 @@ def install_opencode():
     return True
 
 
-def check_prereqs():
+def check_prereqs(engine):
     section("Prerequisites")
     print(f"{GREEN('✔')} Python {sys.version.split()[0]}")
-    oc = find_opencode()
-    if oc:
-        print(f"{GREEN('✔')} opencode CLI: {oc}")
-        return True
-    print(f"{YELLOW('•')} opencode CLI not found")
-    return install_opencode()
+    for cli, label in (("opencode", find_opencode()), ("gemini", GB.find_gemini())):
+        if engine not in ("opencode", "both") and cli == "opencode":
+            continue
+        if engine not in ("gemini", "both") and cli == "gemini":
+            continue
+        if label:
+            print(f"{GREEN('✔')} {cli} CLI: {label}")
+        elif cli == "opencode":
+            print(f"{YELLOW('•')} opencode CLI not found")
+            install_opencode()
+        else:
+            print(f"{YELLOW('•')} gemini CLI not found")
+            install_gemini()
+    if engine in ("gemini", "both"):
+        lit = GB.find_litellm()
+        if lit:
+            print(f"{GREEN('✔')} litellm: {lit}")
+        elif GB.no_launch():
+            print(f"{YELLOW('•')} litellm not found (config-only mode - launch skipped)")
+        else:
+            print(f"{YELLOW('•')} litellm not found")
+            install_litellm()
+
+
+def install_gemini():
+    print(YELLOW("Gemini CLI (@google/gemini-cli) is not installed. Install it now?"))
+    if not yn("  Confirm auto-install (npm install -g @google/gemini-cli)?", default=True):
+        print("  Skipping - the bridge config will still be written; run gemini later.")
+        return False
+    if not cmd_exists("npm"):
+        print(RED("  npm was not found. Install Node.js first: https://nodejs.org"))
+        print("  Then run:  npm install -g @google/gemini-cli")
+        return False
+    print("  Running: npm install -g @google/gemini-cli  (this can take a minute)...")
+    try:
+        rc = subprocess.run("npm install -g @google/gemini-cli", shell=True).returncode
+    except Exception as exc:  # pragma: no cover
+        print(RED(f"  Install failed: {exc}"))
+        return False
+    if rc != 0 or not GB.find_gemini():
+        print(RED("  Install did not succeed."))
+        print("  Manual install: https://github.com/google-gemini/gemini-cli#installation")
+        return False
+    print(GREEN("  done."))
+    return True
+
+
+def install_litellm():
+    print(YELLOW("LiteLLM proxy (the Gemini <-> OpenAI bridge) is not installed."))
+    print(DIM("  The Libre deployment of 'litellm' is a single pip package; it pulls in"))
+    print(DIM("  a number of dependencies on first run, so this is the one heavier step."))
+    if not yn("  Auto-install it now (python3 -m pip install litellm)?", default=True):
+        print("  Skipping - the bridge config will still be written; start litellm later:")
+        print("  " + " ".join(GB.bridge_command()))
+        return False
+    print("  Running: python3 -m pip install litellm  (this can take a few minutes)...")
+    try:
+        rc = subprocess.run([sys.executable, "-m", "pip", "install", "litellm"]).returncode
+    except Exception as exc:  # pragma: no cover
+        print(RED(f"  Install failed: {exc}"))
+        return False
+    if rc != 0 or not GB.find_litellm():
+        print(RED("  Install did not succeed."))
+        print("  Manual install:  python3 -m pip install litellm")
+        return False
+    print(GREEN("  done."))
+    return True
+
+
+def choose_engine(saved=None):
+    if saved and saved.get("engine"):
+        eng = saved["engine"]
+        print(f"{GREEN('✔')} engine: {eng}")
+        return eng
+    section("Engine")
+    print("Which coding CLI should drive this tunnel?")
+    print("  [1] opencode   (direct - recommended; config patched, no extra process)")
+    print("  [2] gemini CLI (Tokenless Gemini CLI - via local LiteLLM bridge)")
+    print("  [3] both")
+    choice = ask("Your choice", default="1")
+    if choice.strip() in ("2", "gemini", "g"):
+        return "gemini"
+    if choice.strip() in ("3", "both", "b"):
+        return "both"
+    return "opencode"
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +343,58 @@ def configure_opencode(base, model):
 
 
 # ---------------------------------------------------------------------------
+# 4b. Tokenless Gemini CLI (via LiteLLM bridge)
+# ---------------------------------------------------------------------------
+def configure_gemini(base, model):
+    section("Tokenless Gemini CLI (LiteLLM bridge)")
+    try:
+        cfg = GB.write_bridge_config(model, http_base(base))
+    except Exception as exc:
+        print(RED(f"  ✘ failed to write bridge config: {exc}"))
+        return None
+    print(GREEN(f"  ✔ bridge config: {cfg}"))
+    print(f"    model      = ollama_chat/{model}")
+    print(f"    api_base   = {http_base(base)}")
+    print(f"    port       = {GB.PORT}  (master key: {GB.MASTER_KEY})")
+    print(DIM("    {bridge launch}  " + " ".join(GB.bridge_command(cfg))))
+    return {"config": str(cfg)}
+
+
+def run_gemini_cli(bridge):
+    section("Gemini CLI")
+    if GB.no_launch():
+        print(DIM("  (launch skipped - TOKENLESS_NO_LAUNCH is set for automation)"))
+        return
+    cfg = Path(bridge["config"])
+    if not GB.find_litellm() or not GB.find_gemini():
+        print(YELLOW("  prerequisite CLI(s) missing - run the bridge manually:"))
+        print("    " + " ".join(GB.bridge_command(cfg)))
+        print(f"    GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:{GB.PORT} "
+              f"GEMINI_API_KEY={GB.MASTER_KEY} gemini --sandbox=false")
+        return
+    proc = GB.launch_bridge(cfg, port=GB.PORT, log_path=GB.bridge_dir() / "litellm.log")
+    if proc is None:
+        print(RED("  ✘ could not start LiteLLM."))
+        return
+    print(f"  starting LiteLLM on port {GB.PORT} ...")
+    if not GB.wait_ready(timeout=120):
+        print(YELLOW("  bridge did not answer in time - check the tunnel and try again."))
+    else:
+        print(GREEN(f"  ✔ bridge ready at http://127.0.0.1:{GB.PORT}"))
+        reply = GB.smoke_bridge()
+        if reply:
+            print(GREEN("  ✔ model replied (Gemini protocol):") + ("  " + reply[:90] if reply else ""))
+        else:
+            print(YELLOW("  • bridge smoke test did not complete - first load can be slow."))
+    print(GREEN("  launching gemini (interactive - exit with /quit when done)..."))
+    print(DIM(f"    env  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:{GB.PORT}  "
+              f"GEMINI_API_KEY={GB.MASTER_KEY}"))
+    GB.launch_gemini()
+    print(DIM("  gemini exited. Stop the bridge anytime with:"))
+    print(YELLOW("    pkill -f litellm --config          # or: taskkill /F /IM litellm.exe"))
+
+
+# ---------------------------------------------------------------------------
 # 5. Chat
 # ---------------------------------------------------------------------------
 def lan_ip():
@@ -345,19 +474,22 @@ def main():
     print(DIM(__doc__.splitlines()[0]))
     print(DIM(f"works on macOS (python3) and Windows (py -3)"))
 
-    check_prereqs()
-
-    base_ok = False
-    base = ""
-    models = []
     saved = None
     if SETUP_JSON.exists():
         try:
             saved = json.loads(SETUP_JSON.read_text())
         except Exception:
             saved = None
+
+    engine = choose_engine(saved)
+    check_prereqs(engine)
+
+    base_ok = False
+    base = ""
+    models = []
     if saved and saved.get("base") and yn(
-        f"Reuse last setup ({saved['base']}, model {saved.get('model','')})?",
+        f"Reuse last setup ({saved['base']}, model {saved.get('model','')}, "
+        f"engine {saved.get('engine','opencode')})?",
         default=False,
     ):
         base, models = saved["base"], []
@@ -373,17 +505,26 @@ def main():
     else:
         model = choose_model(models)
 
-    result = configure_opencode(base, model)
+    result = None
+    bridge = None
+    if engine in ("opencode", "both"):
+        result = configure_opencode(base, model)
+    if engine in ("gemini", "both"):
+        bridge = configure_gemini(base, model)
 
     smoke_test(base, model)
+    if bridge:
+        run_gemini_cli(bridge)
 
     chat_url = start_local_chat(base, model)
 
     try:
         SETUP_JSON.write_text(json.dumps({
+            "engine": engine,
             "base": http_base(base),
             "model": model,
             "config": (result or {}).get("path"),
+            "bridge": (bridge or {}).get("config"),
             "chat": chat_url,
         }, indent=2))
     except Exception:
@@ -391,11 +532,18 @@ def main():
 
     section("Done")
     print(GREEN("  Your setup is ready."))
+    print(f"  ENGINE   : {engine}")
     print(f"  BASE URL : {http_base(base)}/v1")
     print(f"  MODEL ID : {model}")
     if result:
         print(f"  config   : {result['path']}")
         print(YELLOW("  → Restart opencode, then chat with the model in the browser."))
+    if bridge:
+        print(f"  bridge   : {bridge['config']}")
+        print(YELLOW("  → Gemini bridge written; launch with  litellm --config <that file> --port 4000"))
+        if engine == "gemini":
+            print(YELLOW("    or run gemini manually:  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:4000 "
+                         "GEMINI_API_KEY=sk-tokenless-dummy gemini --sandbox=false"))
     print()
     print(DIM("Tip: keep the Colab notebook running - the tunnel dies with the session."))
     return 0

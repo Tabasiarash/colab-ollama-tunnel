@@ -1,5 +1,5 @@
 @echo off
-REM Colab Ollama Tunnel - install wizard. Double-click or run from a terminal.
+REM Tokenless CLI - install wizard. Double-click or run from a terminal.
 setlocal
 cd /d "%~dp0"
 where py >nul 2>nul
