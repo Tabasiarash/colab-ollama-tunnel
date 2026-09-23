@@ -74,7 +74,8 @@ Re-running the wizard reuses your last setup.
 Prefer a window over a terminal? Grab the matching installer from the
 [latest release](https://github.com/Tabasiarash/tokenless-cli/releases):
 
-* **macOS** — `tokenless-cli-<version>.dmg` (drag the *Tokenless CLI Wizard* app to Applications)
+* **macOS (Apple Silicon)** — `Tokenless CLI Wizard-<version>-arm64.dmg` (drag the *Tokenless CLI Wizard* app to Applications)
+* **macOS (Intel, Monterey+)** — `Tokenless CLI Wizard-<version>-x86_64.dmg` (same installer, built for Intel Macs running macOS 12 Monterey and later)
 * **Windows** — `Tokenless-CLI-Setup-<version>.exe` (one-file wizard, no installation)
 * **Linux** — `tokenless-cli-<version>-x86_64.AppImage` (portable GUI app, no installation)
 
@@ -223,7 +224,7 @@ local LiteLLM bridge that translates Gemini's API into the tunnel's OpenAI forma
 ├── wizard.py                # interactive installer (macOS / Windows)
 ├── wizard.sh / wizard.bat   # one-line launcher for the wizard
 ├── build/                   # GUI installer builders (PyInstaller)
-│   ├── mac_build.sh         #   macOS .dmg
+│   ├── mac_build.sh         #   macOS .dmg (arm64 / Intel via TARGET_ARCH)
 │   ├── win_build.bat        #   Windows .exe
 │   └── linux_build.sh       #   Linux .AppImage
 ├── gemini_bridge.py         # "Tokenless Gemini CLI": builds the LiteLLM config,
