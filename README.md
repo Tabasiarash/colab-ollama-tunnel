@@ -69,21 +69,23 @@ The wizard will:
 
 Re-running the wizard reuses your last setup.
 
-### Option A2 — GUI installer (macOS & Windows)
+### Option A2 — GUI installer (macOS, Windows & Linux)
 
 Prefer a window over a terminal? Grab the matching installer from the
 [latest release](https://github.com/Tabasiarash/tokenless-cli/releases):
 
 * **macOS** — `tokenless-cli-<version>.dmg` (drag the *Tokenless CLI Wizard* app to Applications)
 * **Windows** — `Tokenless-CLI-Setup-<version>.exe` (one-file wizard, no installation)
+* **Linux** — `tokenless-cli-<version>-x86_64.AppImage` (portable GUI app, no installation)
 
 The GUI wizard exposes the same steps (tunnel check, model picker, engine choice, smoke test,
-browser chat, Gemini bridge launch) — the `.app`/`.exe` are built automatically for every new tag by
-[GitHub Actions](.github/workflows/build-release.yml).
+browser chat, Gemini bridge launch) — the `.app`/`.exe`/`.AppImage` are built automatically for
+every new tag by [GitHub Actions](.github/workflows/build-release.yml).
 
 The app is not notarized/signed:
 * **macOS** — right-click the app (or the DMG copy) → *Open* the first time (Gatekeeper).
 * **Windows** — click *More info* → *Run anyway* on the SmartScreen prompt.
+* **Linux** — after downloading, make it executable first: `chmod +x tokenless-cli-<version>-x86_64.AppImage`, then double-click it (or run it from a terminal).
 
 Packaged only with `pyinstaller`; the wizard itself remains plain standard-library Python
 (`python3 wizard_gui.py` works too).
@@ -220,6 +222,10 @@ local LiteLLM bridge that translates Gemini's API into the tunnel's OpenAI forma
 ├── gen_colab_nb.py          # builds the notebook from source strings
 ├── wizard.py                # interactive installer (macOS / Windows)
 ├── wizard.sh / wizard.bat   # one-line launcher for the wizard
+├── build/                   # GUI installer builders (PyInstaller)
+│   ├── mac_build.sh         #   macOS .dmg
+│   ├── win_build.bat        #   Windows .exe
+│   └── linux_build.sh       #   Linux .AppImage
 ├── gemini_bridge.py         # "Tokenless Gemini CLI": builds the LiteLLM config,
 │                            #   starts the bridge, launches gemini --sandbox=false
 ├── litellm_config.example.yaml  # hand-editable LiteLLM bridge config template

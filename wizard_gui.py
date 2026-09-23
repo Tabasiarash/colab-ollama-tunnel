@@ -352,8 +352,17 @@ class WizardApp:
         try:
             if sys.platform.startswith("win"):
                 os.startfile(str(script))  # type: ignore[attr-defined]
-            else:
+            elif sys.platform == "darwin":
                 subprocess.Popen(["open", str(script)])
+            else:
+                opener = shutil.which("xdg-open")
+                if opener:
+                    subprocess.Popen([opener, str(script)])
+                else:
+                    self._log(
+                        f"  • launcher written, run it manually: {script}", "warn"
+                    )
+                    return
         except Exception as exc:  # noqa: BLE001
             self._log(f"  ✘ could not open launcher: {exc}", "err")
             return

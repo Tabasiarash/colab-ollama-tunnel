@@ -15,6 +15,9 @@ dist/
 build/Tokenless CLI Wizard/
 build/TokenlessIcon.iconset/
 build/*.icns
+build/pyi-work/
+build/pyi-dist/
+build/TokenlessCLI.AppDir/
 
 # local scratch
 bisect/

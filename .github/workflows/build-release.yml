@@ -55,9 +55,30 @@ jobs:
           name: exe
           path: dist/*.exe
 
+  build-linux:
+    name: build .AppImage
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+      - name: install tkinter + pyinstaller
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+          python3 -m pip install --quiet pyinstaller
+      - name: build appimage
+        run: bash build/linux_build.sh
+      - uses: actions/upload-artifact@v5
+        with:
+          name: linux
+          path: dist/*.AppImage
+
   release:
     name: publish release
-    needs: [build-macos, build-windows]
+    needs: [build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -72,6 +93,10 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: exe
+          path: release
+      - uses: actions/download-artifact@v5
+        with:
+          name: linux
           path: release
       - name: publish to GitHub Releases
         env:
